@@ -33,9 +33,11 @@
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
 
-      // Google API configuration
-      const CLIENT_ID = '796853614917-9jd2ntbuk1m913selkaqr8vfd2lslaq0.apps.googleusercontent.com';
-      const API_KEY = 'AIzaSyD_xfvi5xSWChKUCZCPdhJHNIZvyivMmGg';
+      // ========== PASTE YOUR CREDENTIALS HERE ==========
+      const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
+      const API_KEY = 'AIzaSyB2hlF42e4PTsRk1f8egPUcL4MGwYSZgxs';      // Should look like: AIzaSyD...
+      // ==================================================
+
       const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
       const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -59,7 +61,7 @@
             scope: SCOPES,
             callback: (response) => {
               if (response.error) {
-                setError('Authentication failed');
+                setError('Authentication failed: ' + response.error);
                 return;
               }
               setIsSignedIn(true);
@@ -78,7 +80,7 @@
           });
           setIsInitializing(false);
         } catch (err) {
-          setError('Failed to initialize Google API');
+          setError('Failed to initialize Google API: ' + err.message);
           setIsInitializing(false);
         }
       };
@@ -438,9 +440,15 @@
                   This app uses Google Sheets to store your maintenance data. Your data will be synced across all your devices.
                 </p>
                 <p className="text-zinc-400 text-xs">
-                  A new Google Sheet will be created in your Google Drive, or you can access an existing one.
+                  A new Google Sheet will be created in your Google Drive.
                 </p>
               </div>
+
+              {error && (
+                <div className="bg-red-900 border-2 border-red-600 p-3 mb-4 text-white text-sm">
+                  {error}
+                </div>
+              )}
 
               <button
                 onClick={handleSignIn}
@@ -897,7 +905,7 @@
 
       return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
+          <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6 max-h-screen overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-orange-400 tracking-wider">ADD LOG ENTRY</h3>
               <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
