@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Maintenance Pro - Sprint 1</title>
+  <title>Maintenance Pro - Sprint 2 Complete</title>
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
     .horizontal-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
     .horizontal-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 4px; }
     .horizontal-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5); }
+    @media print { .no-print { display: none !important; } }
   </style>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -31,24 +32,23 @@ const DISCOVERY_DOCS = ['https://sheets.googleapis.com/$discovery/rest?version=v
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
 const CONFIG_FILE_NAME = 'laundromat_pro_config.json';
 
-// Icons Component
+// Icons
 const Icon = ({ name, size = 20 }) => {
   const paths = {
     dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
-    plus: "M12 5v14m-7-7h14",
-    wrench: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
-    calendar: "M3 4h18M3 4v16h18V4M16 2v4M8 2v4M3 10h18",
-    search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
-    edit: "M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z",
-    trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-    save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z",
-    x: "M18 6L6 18M6 6l12 12",
+    plus: "M12 5v14m-7-7h14", wrench: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+    calendar: "M3 4h18M3 4v16h18V4M16 2v4M8 2v4M3 10h18", search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+    edit: "M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z", trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+    save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z", x: "M18 6L6 18M6 6l12 12",
     refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-    chart: "M18 20V10M12 20V4M6 20v-6",
-    home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+    chart: "M18 20V10M12 20V4M6 20v-6", home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
     alert: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01",
     image: "M3 3h18v18H3zM8.5 8.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM21 15l-5-5-11 11",
     file: "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM13 2v7h7",
+    users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+    package: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z",
+    download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+    archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 };
@@ -69,6 +69,19 @@ const calculateROI = (machine, logs) => {
   return { totalCost, annualCost, age, recommendation: annualCost > (estimatedCost * 0.3) ? 'REPLACE' : 'MAINTAIN' };
 };
 
+const exportToCSV = (data, filename) => {
+  if (data.length === 0) return;
+  const headers = Object.keys(data[0]);
+  const csv = [headers.join(','), ...data.map(row => headers.map(h => JSON.stringify(row[h] || '')).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 // Main App
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -80,12 +93,14 @@ const App = () => {
   const [machines, setMachines] = useState([]);
   const [equipmentLogs, setEquipmentLogs] = useState([]);
   const [buildingLogs, setBuildingLogs] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [parts, setParts] = useState([]);
   const [partsUsage, setPartsUsage] = useState([]);
   
   const [year, setYear] = useState(new Date().getFullYear());
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedLocation, setSelectedLocation] = useState('all');
+  const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [syncStatus, setSyncStatus] = useState('');
@@ -201,6 +216,7 @@ const App = () => {
           { properties: { title: 'Machines' } },
           { properties: { title: 'Equipment Logs' } },
           { properties: { title: 'Building Logs' } },
+          { properties: { title: 'Vendors' } },
           { properties: { title: 'Parts Inventory' } },
           { properties: { title: 'Parts Usage' } },
         ],
@@ -219,9 +235,10 @@ const App = () => {
         valueInputOption: 'RAW',
         data: [
           { range: 'Locations!A1', values: [['ID', 'Name', 'Address']] },
-          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate']] },
+          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate', 'Archived']] },
           { range: 'Equipment Logs!A1', values: [['ID', 'LocationID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'PartsUsed', 'Notes', 'Files']] },
           { range: 'Building Logs!A1', values: [['ID', 'LocationID', 'Date', 'Category', 'Issue', 'Tech', 'Cost', 'Hours', 'Notes', 'Files']] },
+          { range: 'Vendors!A1', values: [['ID', 'Name', 'Contact', 'Phone', 'Email', 'Specialties', 'Rate', 'Notes']] },
           { range: 'Parts Inventory!A1', values: [['ID', 'Name', 'SKU', 'Stock', 'MinStock', 'Cost', 'VendorID', 'LocationID', 'Notes']] },
           { range: 'Parts Usage!A1', values: [['ID', 'LogID', 'PartID', 'Qty', 'Cost', 'Date']] },
         ],
@@ -243,15 +260,16 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:G', 'Equipment Logs!A2:K', 'Building Logs!A2:J', 'Parts Inventory!A2:I', 'Parts Usage!A2:F'],
+        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:K', 'Building Logs!A2:J', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F'],
       });
       
-      const [loc, mach, eqLog, bldLog, part, usage] = response.result.valueRanges.map(r => r.values || []);
+      const [loc, mach, eqLog, bldLog, vend, part, usage] = response.result.valueRanges.map(r => r.values || []);
       
       setLocations(loc.map(r => ({ id: r[0], name: r[1], address: r[2] || '' })));
-      setMachines(mach.map(r => ({ id: r[0], locationId: r[1], name: r[2], model: r[3], serial: r[4], type: r[5], purchaseDate: r[6] || '' })));
+      setMachines(mach.map(r => ({ id: r[0], locationId: r[1], name: r[2], model: r[3], serial: r[4], type: r[5], purchaseDate: r[6] || '', archived: r[7] === 'true' })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '' })));
+      setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
       setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
 
@@ -301,13 +319,13 @@ const App = () => {
 
   // CRUD Operations
   const addMachine = async (machine) => {
-    const newMachine = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, ...machine };
+    const newMachine = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, ...machine, archived: false };
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Machines!A:G',
+        range: 'Machines!A:H',
         valueInputOption: 'RAW',
-        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate]] },
+        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false']] },
       });
       setMachines([...machines, newMachine]);
       setModal(null);
@@ -324,9 +342,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Machines!A${rowNum}:G${rowNum}`,
+        range: `Machines!A${rowNum}:H${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate]] },
+        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false']] },
       });
       
       setMachines(machines.map(m => m.id === id ? updated : m));
@@ -336,8 +354,17 @@ const App = () => {
     }
   };
 
+  const archiveMachine = async (id) => {
+    if (!window.confirm('Archive this machine? History will be preserved but it will be hidden from active equipment.')) return;
+    await updateMachine(id, { archived: true });
+  };
+
+  const unarchiveMachine = async (id) => {
+    await updateMachine(id, { archived: false });
+  };
+
   const deleteMachine = async (id) => {
-    if (!window.confirm('Delete this machine? This cannot be undone.')) return;
+    if (!window.confirm('DELETE this machine permanently? This cannot be undone.')) return;
     try {
       const index = machines.findIndex(m => m.id === id);
       await window.gapi.client.sheets.spreadsheets.batchUpdate({
@@ -352,20 +379,16 @@ const App = () => {
 
   const addEquipmentLog = async (log, selectedParts, photoFiles) => {
     setSyncStatus('Saving...');
-    
-    // Upload files
     let fileIds = '';
     if (photoFiles?.length > 0) {
       const uploads = await Promise.all(photoFiles.map(f => uploadFile(f)));
       fileIds = uploads.map(u => u.id).join(',');
     }
 
-    // Calculate costs
     const partsCost = selectedParts.reduce((sum, p) => sum + (parseFloat(p.qty) * parseFloat(p.cost)), 0);
     const laborCost = parseFloat(log.laborCost || 0);
     const totalCost = partsCost + laborCost;
 
-    // Create log
     const newLog = {
       id: Date.now().toString(),
       locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation,
@@ -381,7 +404,6 @@ const App = () => {
     };
 
     try {
-      // Add log
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'Equipment Logs!A:K',
@@ -389,14 +411,12 @@ const App = () => {
         resource: { values: [[newLog.id, newLog.locationId, newLog.machineId, newLog.date, newLog.issue, newLog.tech, newLog.cost, newLog.hours, newLog.partsUsed, newLog.notes, newLog.files]] },
       });
 
-      // Deduct parts from inventory & record usage
       for (const part of selectedParts) {
         const partIndex = parts.findIndex(p => p.id === part.id);
         if (partIndex >= 0) {
           const currentStock = parseInt(parts[partIndex].stock);
           const newStock = Math.max(0, currentStock - parseInt(part.qty));
           
-          // Update inventory
           await window.gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId,
             range: `Parts Inventory!D${partIndex + 2}`,
@@ -404,7 +424,6 @@ const App = () => {
             resource: { values: [[newStock.toString()]] },
           });
 
-          // Record usage
           await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
             range: 'Parts Usage!A:F',
@@ -412,7 +431,6 @@ const App = () => {
             resource: { values: [[Date.now().toString(), newLog.id, part.id, part.qty, (parseFloat(part.qty) * parseFloat(part.cost)).toString(), newLog.date]] },
           });
 
-          // Update local state
           parts[partIndex].stock = newStock.toString();
         }
       }
@@ -463,6 +481,113 @@ const App = () => {
     setSyncStatus('');
   };
 
+  // Parts CRUD
+  const addPart = async (part) => {
+    const newPart = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, ...part };
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Parts Inventory!A:I',
+        valueInputOption: 'RAW',
+        resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId || '', newPart.locationId, newPart.notes || '']] },
+      });
+      setParts([...parts, newPart]);
+      setModal(null);
+      generateAlerts([...parts, newPart].map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]));
+    } catch (err) {
+      setError('Failed to add part');
+    }
+  };
+
+  const updatePart = async (id, updates) => {
+    try {
+      const index = parts.findIndex(p => p.id === id);
+      const updated = { ...parts[index], ...updates };
+      const rowNum = index + 2;
+      
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Parts Inventory!A${rowNum}:I${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[updated.id, updated.name, updated.sku, updated.stock, updated.minStock, updated.cost, updated.vendorId || '', updated.locationId, updated.notes || '']] },
+      });
+      
+      const newParts = parts.map(p => p.id === id ? updated : p);
+      setParts(newParts);
+      setModal(null);
+      generateAlerts(newParts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]));
+    } catch (err) {
+      setError('Failed to update part');
+    }
+  };
+
+  const deletePart = async (id) => {
+    if (!window.confirm('Delete this part?')) return;
+    try {
+      const index = parts.findIndex(p => p.id === id);
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests: [{ deleteDimension: { range: { sheetId: 5, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+      });
+      const newParts = parts.filter(p => p.id !== id);
+      setParts(newParts);
+      generateAlerts(newParts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]));
+    } catch (err) {
+      setError('Failed to delete part');
+    }
+  };
+
+  // Vendors CRUD
+  const addVendor = async (vendor) => {
+    const newVendor = { id: Date.now().toString(), ...vendor };
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Vendors!A:H',
+        valueInputOption: 'RAW',
+        resource: { values: [[newVendor.id, newVendor.name, newVendor.contact, newVendor.phone, newVendor.email, newVendor.specialties, newVendor.rate, newVendor.notes || '']] },
+      });
+      setVendors([...vendors, newVendor]);
+      setModal(null);
+    } catch (err) {
+      setError('Failed to add vendor');
+    }
+  };
+
+  const updateVendor = async (id, updates) => {
+    try {
+      const index = vendors.findIndex(v => v.id === id);
+      const updated = { ...vendors[index], ...updates };
+      const rowNum = index + 2;
+      
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Vendors!A${rowNum}:H${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[updated.id, updated.name, updated.contact, updated.phone, updated.email, updated.specialties, updated.rate, updated.notes || '']] },
+      });
+      
+      setVendors(vendors.map(v => v.id === id ? updated : v));
+      setModal(null);
+    } catch (err) {
+      setError('Failed to update vendor');
+    }
+  };
+
+  const deleteVendor = async (id) => {
+    if (!window.confirm('Delete this vendor?')) return;
+    try {
+      const index = vendors.findIndex(v => v.id === id);
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests: [{ deleteDimension: { range: { sheetId: 4, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+      });
+      setVendors(vendors.filter(v => v.id !== id));
+    } catch (err) {
+      setError('Failed to delete vendor');
+    }
+  };
+
   if (isInitializing) {
     return <div className="min-h-screen bg-zinc-900 flex items-center justify-center"><div className="text-teal-400 text-2xl font-black animate-pulse">MAINTENANCE PRO</div></div>;
   }
@@ -472,12 +597,14 @@ const App = () => {
       <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
         <div className="bg-zinc-800 border-4 border-teal-600 p-8 max-w-md">
           <h1 className="text-4xl font-black text-teal-400 mb-2">MAINTENANCE PRO</h1>
-          <p className="text-zinc-400 mb-6 font-bold">Sprint 1 - Core Operations</p>
+          <p className="text-zinc-400 mb-6 font-bold">Sprint 2 Complete System</p>
           <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-6 space-y-1 text-sm text-zinc-300">
-            <p>✅ Equipment Management</p>
-            <p>✅ Repair Logs with Auto Parts Deduction</p>
-            <p>✅ Building Maintenance</p>
-            <p>✅ Dashboard with Alerts</p>
+            <p>✅ Archive Equipment</p>
+            <p>✅ Parts Inventory Management</p>
+            <p>✅ Vendors Database</p>
+            <p>✅ Reports & Analytics</p>
+            <p>✅ CSV Export</p>
+            <p>✅ Auto Parts Deduction</p>
           </div>
           <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700">
             SIGN IN WITH GOOGLE
@@ -487,6 +614,8 @@ const App = () => {
     );
   }
 
+  const activeMachines = machines.filter(m => !m.archived && (selectedLocation === 'all' || m.locationId === selectedLocation));
+  const displayMachines = showArchived ? machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation) : activeMachines;
   const currentLogs = selectedLocation === 'all' ? equipmentLogs : equipmentLogs.filter(l => l.locationId === selectedLocation);
   const currentBldg = selectedLocation === 'all' ? buildingLogs : buildingLogs.filter(l => l.locationId === selectedLocation);
   const equipTotal = currentLogs.filter(l => new Date(l.date).getFullYear() === year).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
@@ -503,7 +632,7 @@ const App = () => {
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
               <h1 className="text-4xl font-black text-white">MAINTENANCE PRO</h1>
-              <p className="text-slate-200 text-sm font-bold">Sprint 1 - Core Operations</p>
+              <p className="text-slate-200 text-sm font-bold">Sprint 2 Complete</p>
             </div>
             
             <div className="flex gap-3 items-center flex-wrap">
@@ -535,6 +664,9 @@ const App = () => {
               { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT' },
               { id: 'repairs', icon: 'calendar', label: 'REPAIRS' },
               { id: 'building', icon: 'home', label: 'BUILDING' },
+              { id: 'vendors', icon: 'users', label: 'VENDORS' },
+              { id: 'inventory', icon: 'package', label: 'INVENTORY' },
+              { id: 'reports', icon: 'chart', label: 'REPORTS' },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
                 <Icon name={tab.icon} size={18} />
@@ -556,9 +688,9 @@ const App = () => {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'dashboard' && (
-          <Dashboard 
+          <Dashboard
             alerts={alerts}
-            machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)}
+            machines={activeMachines}
             equipmentLogs={currentLogs.filter(l => new Date(l.date).getFullYear() === year)}
             buildingLogs={currentBldg.filter(l => new Date(l.date).getFullYear() === year)}
             parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)}
@@ -567,12 +699,16 @@ const App = () => {
         )}
         {activeTab === 'equipment' && (
           <EquipmentTab
-            machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)}
+            machines={displayMachines}
             logs={currentLogs}
             year={year}
+            showArchived={showArchived}
+            setShowArchived={setShowArchived}
             onAdd={() => setModal({ type: 'addMachine' })}
             onEdit={(machine) => setModal({ type: 'editMachine', data: machine })}
             onDelete={deleteMachine}
+            onArchive={archiveMachine}
+            onUnarchive={unarchiveMachine}
           />
         )}
         {activeTab === 'repairs' && (
@@ -589,19 +725,63 @@ const App = () => {
             onAdd={() => setModal({ type: 'addBuilding' })}
           />
         )}
+        {activeTab === 'vendors' && (
+          <VendorsTab
+            vendors={vendors}
+            equipmentLogs={currentLogs}
+            buildingLogs={currentBldg}
+            onAdd={() => setModal({ type: 'addVendor' })}
+            onEdit={(vendor) => setModal({ type: 'editVendor', data: vendor })}
+            onDelete={deleteVendor}
+          />
+        )}
+        {activeTab === 'inventory' && (
+          <InventoryTab
+            parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)}
+            partsUsage={partsUsage}
+            vendors={vendors}
+            onAdd={() => setModal({ type: 'addPart' })}
+            onEdit={(part) => setModal({ type: 'editPart', data: part })}
+            onDelete={deletePart}
+          />
+        )}
+        {activeTab === 'reports' && (
+          <ReportsTab
+            machines={activeMachines}
+            equipmentLogs={currentLogs}
+            buildingLogs={currentBldg}
+            parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)}
+            partsUsage={partsUsage}
+            year={year}
+          />
+        )}
       </main>
 
       {modal?.type === 'addMachine' && <MachineModal onClose={() => setModal(null)} onSave={addMachine} />}
       {modal?.type === 'editMachine' && <MachineModal machine={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateMachine(modal.data.id, updates)} />}
       {modal?.type === 'addRepair' && <RepairModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={addEquipmentLog} />}
       {modal?.type === 'addBuilding' && <BuildingModal onClose={() => setModal(null)} onSave={addBuildingLog} />}
+      {modal?.type === 'addVendor' && <VendorModal onClose={() => setModal(null)} onSave={addVendor} />}
+      {modal?.type === 'editVendor' && <VendorModal vendor={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateVendor(modal.data.id, updates)} />}
+      {modal?.type === 'addPart' && <PartModal vendors={vendors} onClose={() => setModal(null)} onSave={addPart} />}
+      {modal?.type === 'editPart' && <PartModal part={modal.data} vendors={vendors} onClose={() => setModal(null)} onSave={(updates) => updatePart(modal.data.id, updates)} />}
     </div>
   );
 };
 
-// Dashboard Component
+// Components will be added in next part - file is getting very large
+// This is the foundation with all CRUD operations built in
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
+
+// Dashboard Component (from Sprint 1 - enhanced)
 const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year }) => {
   const today = new Date();
+  const activeMachines = machines.filter(m => !m.archived);
+  
   const thisMonth = equipmentLogs.filter(l => {
     const d = new Date(l.date);
     return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
@@ -614,10 +794,10 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
     return d.getMonth() === lastM.getMonth() && d.getFullYear() === lastM.getFullYear();
   }).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
 
-  const avgAge = machines.filter(m => m.purchaseDate).reduce((acc, m) => {
+  const avgAge = activeMachines.filter(m => m.purchaseDate).reduce((acc, m) => {
     const age = (today - new Date(m.purchaseDate)) / (1000 * 60 * 60 * 24 * 365);
     return acc + age;
-  }, 0) / machines.filter(m => m.purchaseDate).length || 0;
+  }, 0) / activeMachines.filter(m => m.purchaseDate).length || 0;
 
   return (
     <div className="space-y-6">
@@ -637,22 +817,22 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
           <div className="text-zinc-400 text-sm font-bold mb-2">THIS MONTH</div>
           <div className="text-3xl font-black text-teal-400">${thisMonth.toFixed(0)}</div>
           <div className="text-xs text-zinc-500 mt-2">
             {lastMonth > 0 && (
               <span className={thisMonth > lastMonth ? 'text-red-400' : 'text-green-400'}>
-                {thisMonth > lastMonth ? '↑' : '↓'} {Math.abs(((thisMonth - lastMonth) / lastMonth) * 100).toFixed(0)}% vs last month
+                {thisMonth > lastMonth ? '↑' : '↓'} {Math.abs(((thisMonth - lastMonth) / lastMonth) * 100).toFixed(0)}% vs last
               </span>
             )}
           </div>
         </div>
 
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
-          <div className="text-zinc-400 text-sm font-bold mb-2">EQUIPMENT COUNT</div>
-          <div className="text-3xl font-black text-teal-400">{machines.length}</div>
+          <div className="text-zinc-400 text-sm font-bold mb-2">ACTIVE EQUIPMENT</div>
+          <div className="text-3xl font-black text-teal-400">{activeMachines.length}</div>
           <div className="text-xs text-zinc-500 mt-2">Avg age: {avgAge.toFixed(1)} years</div>
         </div>
 
@@ -661,7 +841,13 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
           <div className="text-3xl font-black text-teal-400">
             {parts.filter(p => parseInt(p.stock) <= parseInt(p.minStock)).length}
           </div>
-          <div className="text-xs text-zinc-500 mt-2">Check inventory tab</div>
+          <div className="text-xs text-zinc-500 mt-2">Check inventory</div>
+        </div>
+
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
+          <div className="text-zinc-400 text-sm font-bold mb-2">ARCHIVED</div>
+          <div className="text-3xl font-black text-zinc-400">{machines.filter(m => m.archived).length}</div>
+          <div className="text-xs text-zinc-500 mt-2">Hidden machines</div>
         </div>
       </div>
 
@@ -670,7 +856,7 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
         <div className="space-y-2">
           {[...equipmentLogs, ...buildingLogs]
             .sort((a, b) => new Date(b.date) - new Date(a.date))
-            .slice(0, 5)
+            .slice(0, 8)
             .map(log => {
               const machine = machines.find(m => m.id === log.machineId);
               return (
@@ -692,8 +878,8 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
   );
 };
 
-// Equipment Tab Component
-const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
+// Equipment Tab with ARCHIVE feature
+const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive }) => {
   const [search, setSearch] = useState('');
   
   const filtered = machines.filter(m => 
@@ -707,9 +893,15 @@ const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
   return (
     <div>
       <div className="flex justify-between mb-4 flex-wrap gap-4">
-        <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
-          <Icon name="wrench" size={24} /> EQUIPMENT ROSTER
-        </h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
+            <Icon name="wrench" size={24} /> EQUIPMENT ROSTER
+          </h2>
+          <label className="flex items-center gap-2 text-zinc-300 cursor-pointer">
+            <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} className="w-4 h-4" />
+            <span className="text-sm font-bold">Show Archived</span>
+          </label>
+        </div>
         <div className="flex gap-3">
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
@@ -726,8 +918,14 @@ const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
         {filtered.map(m => {
           const roi = calculateROI(m, logs);
           const age = calculateAge(m.purchaseDate);
+          const isArchived = m.archived;
           return (
-            <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-teal-500 transition">
+            <div key={m.id} className={`bg-zinc-800 border-2 p-4 hover:border-teal-500 transition ${isArchived ? 'border-zinc-600 opacity-60' : 'border-zinc-700'}`}>
+              {isArchived && (
+                <div className="bg-zinc-700 border border-zinc-600 px-2 py-1 text-xs font-black text-zinc-400 mb-2 inline-block">
+                  ARCHIVED
+                </div>
+              )}
               <div className="flex justify-between mb-3">
                 <div>
                   <h3 className="text-lg font-black text-white">{m.name}</h3>
@@ -737,6 +935,16 @@ const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
                   <button onClick={() => onEdit(m)} className="text-teal-400 hover:text-teal-300">
                     <Icon name="edit" size={16} />
                   </button>
+                  {!isArchived && (
+                    <button onClick={() => onArchive(m.id)} className="text-yellow-400 hover:text-yellow-300" title="Archive">
+                      <Icon name="archive" size={16} />
+                    </button>
+                  )}
+                  {isArchived && (
+                    <button onClick={() => onUnarchive(m.id)} className="text-green-400 hover:text-green-300" title="Unarchive">
+                      <Icon name="wrench" size={16} />
+                    </button>
+                  )}
                   <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-300">
                     <Icon name="trash" size={16} />
                   </button>
@@ -746,7 +954,7 @@ const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
                 <p className="text-zinc-400"><span className="font-bold">MODEL:</span> {m.model}</p>
                 <p className="text-zinc-400"><span className="font-bold">TYPE:</span> {m.type}</p>
                 {age && <p className="text-zinc-400"><span className="font-bold">AGE:</span> {age.toFixed(1)} years</p>}
-                {roi && (
+                {roi && !isArchived && (
                   <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
                     {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
                   </p>
@@ -775,14 +983,14 @@ const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
   );
 };
 
-// Repairs Tab Component
+// Repairs Tab (from Sprint 1)
 const RepairsTab = ({ logs, machines, parts, onAdd }) => (
   <div>
     <div className="flex justify-between mb-4">
       <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
         <Icon name="calendar" size={24} /> REPAIR LOGS
       </h2>
-      <button onClick={onAdd} disabled={machines.length === 0} className="bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 text-white px-6 py-2 font-black border-2 border-teal-700 flex items-center gap-2">
+      <button onClick={onAdd} disabled={machines.filter(m => !m.archived).length === 0} className="bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 text-white px-6 py-2 font-black border-2 border-teal-700 flex items-center gap-2">
         <Icon name="plus" /> ADD REPAIR
       </button>
     </div>
@@ -806,7 +1014,10 @@ const RepairsTab = ({ logs, machines, parts, onAdd }) => (
             return (
               <tr key={l.id} className="border-b border-zinc-700 hover:bg-zinc-750">
                 <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
-                <td className="px-4 py-3 text-zinc-300">{machine?.name || 'Unknown'}</td>
+                <td className="px-4 py-3 text-zinc-300">
+                  {machine?.name || 'Unknown'}
+                  {machine?.archived && <span className="ml-2 text-xs text-zinc-500">(ARCHIVED)</span>}
+                </td>
                 <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
                 <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
                 <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
@@ -824,7 +1035,7 @@ const RepairsTab = ({ logs, machines, parts, onAdd }) => (
   </div>
 );
 
-// Building Tab Component
+// Building Tab (from Sprint 1)
 const BuildingTab = ({ logs, onAdd }) => (
   <div>
     <div className="flex justify-between mb-4">
@@ -867,7 +1078,409 @@ const BuildingTab = ({ logs, onAdd }) => (
   </div>
 );
 
-// Machine Modal Component
+
+// Vendors Tab - NEW IN SPRINT 2
+const VendorsTab = ({ vendors, equipmentLogs, buildingLogs, onAdd, onEdit, onDelete }) => {
+  const [search, setSearch] = useState('');
+  
+  const filtered = vendors.filter(v => 
+    v.name?.toLowerCase().includes(search.toLowerCase()) ||
+    v.specialties?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const getJobs = (vendorName) => {
+    return [...equipmentLogs, ...buildingLogs].filter(l => l.tech?.toLowerCase().includes(vendorName.toLowerCase())).length;
+  };
+
+  const getTotalCost = (vendorName) => {
+    return [...equipmentLogs, ...buildingLogs]
+      .filter(l => l.tech?.toLowerCase().includes(vendorName.toLowerCase()))
+      .reduce((sum, l) => sum + parseFloat(l.cost || 0), 0);
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between mb-4 flex-wrap gap-4">
+        <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
+          <Icon name="users" size={24} /> VENDORS DATABASE
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+              <Icon name="search" size={16} />
+            </div>
+            <input type="text" placeholder="SEARCH..." value={search} onChange={e => setSearch(e.target.value)} className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold focus:border-teal-500 outline-none" />
+          </div>
+          <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-2 font-black border-2 border-teal-700 flex items-center gap-2">
+            <Icon name="plus" /> ADD VENDOR
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {filtered.map(v => (
+          <div key={v.id} className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-teal-500 transition">
+            <div className="flex justify-between mb-3">
+              <div>
+                <h3 className="text-lg font-black text-white">{v.name}</h3>
+                <p className="text-xs text-zinc-400 font-bold">{v.contact}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => onEdit(v)} className="text-teal-400 hover:text-teal-300">
+                  <Icon name="edit" size={16} />
+                </button>
+                <button onClick={() => onDelete(v.id)} className="text-red-400 hover:text-red-300">
+                  <Icon name="trash" size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 text-sm mb-3">
+              {v.phone && <p className="text-zinc-400"><span className="font-bold">PHONE:</span> {v.phone}</p>}
+              {v.email && <p className="text-zinc-400"><span className="font-bold">EMAIL:</span> {v.email}</p>}
+              {v.specialties && <p className="text-zinc-400"><span className="font-bold">SPECIALTIES:</span> {v.specialties}</p>}
+              {v.rate && <p className="text-zinc-400"><span className="font-bold">RATE:</span> ${v.rate}/hr</p>}
+            </div>
+            <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
+              <div>
+                <div className="text-xs text-zinc-500 font-bold">JOBS</div>
+                <div className="text-xl font-black text-teal-400">{getJobs(v.name)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-zinc-500 font-bold">TOTAL COST</div>
+                <div className="text-xl font-black text-teal-400">${getTotalCost(v.name).toFixed(2)}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {filtered.length === 0 && (
+        <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
+          <p className="text-zinc-500 font-bold">NO VENDORS FOUND</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Inventory Tab - NEW IN SPRINT 2
+const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onAdjustStock }) => {
+  const [search, setSearch] = useState('');
+  
+  const filtered = parts.filter(p => 
+    p.name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.sku?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const getUsageCount = (partId) => {
+    return partsUsage.filter(u => u.partId === partId).reduce((sum, u) => sum + parseInt(u.qty || 0), 0);
+  };
+
+  const getStockStatus = (stock, minStock) => {
+    const s = parseInt(stock);
+    const m = parseInt(minStock);
+    if (s === 0) return { color: 'red', label: 'OUT' };
+    if (s <= m) return { color: 'yellow', label: 'LOW' };
+    return { color: 'green', label: 'OK' };
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between mb-4 flex-wrap gap-4">
+        <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
+          <Icon name="package" size={24} /> PARTS INVENTORY
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+              <Icon name="search" size={16} />
+            </div>
+            <input type="text" placeholder="SEARCH..." value={search} onChange={e => setSearch(e.target.value)} className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold focus:border-teal-500 outline-none" />
+          </div>
+          <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-2 font-black border-2 border-teal-700 flex items-center gap-2">
+            <Icon name="plus" /> ADD PART
+          </button>
+        </div>
+      </div>
+      <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-zinc-900 border-b-2 border-teal-600">
+            <tr>
+              <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">PART NAME</th>
+              <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">SKU</th>
+              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STOCK</th>
+              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">MIN</th>
+              <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>
+              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">USED</th>
+              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STATUS</th>
+              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.sort((a,b) => parseInt(a.stock) - parseInt(b.stock)).map(p => {
+              const status = getStockStatus(p.stock, p.minStock);
+              const vendor = vendors.find(v => v.id === p.vendorId);
+              return (
+                <tr key={p.id} className="border-b border-zinc-700 hover:bg-zinc-750">
+                  <td className="px-4 py-3">
+                    <div className="text-white font-bold">{p.name}</div>
+                    {vendor && <div className="text-xs text-zinc-500">{vendor.name}</div>}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-300">{p.sku}</td>
+                  <td className="px-4 py-3 text-center text-white font-bold">{p.stock}</td>
+                  <td className="px-4 py-3 text-center text-zinc-400">{p.minStock}</td>
+                  <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(p.cost || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-center text-zinc-400">{getUsageCount(p.id)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`px-2 py-1 text-xs font-black ${status.color === 'red' ? 'bg-red-900 text-red-400' : status.color === 'yellow' ? 'bg-yellow-900 text-yellow-400' : 'bg-green-900 text-green-400'}`}>
+                      {status.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className="flex justify-center gap-2">
+                      <button onClick={() => onEdit(p)} className="text-teal-400 hover:text-teal-300" title="Edit">
+                        <Icon name="edit" size={16} />
+                      </button>
+                      <button onClick={() => onDelete(p.id)} className="text-red-400 hover:text-red-300" title="Delete">
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && (
+          <div className="text-center py-8 text-zinc-500 font-bold">NO PARTS IN INVENTORY</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Reports Tab - NEW IN SPRINT 2
+const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, year }) => {
+  const canvasRef1 = useRef(null);
+  const canvasRef2 = useRef(null);
+  const canvasRef3 = useRef(null);
+  const chart1 = useRef(null);
+  const chart2 = useRef(null);
+  const chart3 = useRef(null);
+
+  useEffect(() => {
+    // Monthly Expenses Chart
+    if (canvasRef1.current) {
+      if (chart1.current) chart1.current.destroy();
+      
+      const monthlyData = Array(12).fill(0).map((_, i) => {
+        const equipCost = equipmentLogs.filter(l => {
+          const d = new Date(l.date);
+          return d.getMonth() === i && d.getFullYear() === year;
+        }).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+        
+        const bldgCost = buildingLogs.filter(l => {
+          const d = new Date(l.date);
+          return d.getMonth() === i && d.getFullYear() === year;
+        }).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+        
+        return { equip: equipCost, bldg: bldgCost };
+      });
+
+      chart1.current = new Chart(canvasRef1.current, {
+        type: 'bar',
+        data: {
+          labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+          datasets: [
+            {
+              label: 'Equipment',
+              data: monthlyData.map(d => d.equip),
+              backgroundColor: 'rgba(20, 184, 166, 0.8)',
+            },
+            {
+              label: 'Building',
+              data: monthlyData.map(d => d.bldg),
+              backgroundColor: 'rgba(100, 116, 139, 0.8)',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#fff', font: { weight: 'bold' } } }
+          },
+          scales: {
+            y: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } },
+            x: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } }
+          }
+        }
+      });
+    }
+
+    // Equipment Breakdown Pie
+    if (canvasRef2.current) {
+      if (chart2.current) chart2.current.destroy();
+      
+      const machineData = machines.filter(m => !m.archived).map(m => ({
+        name: m.name,
+        cost: equipmentLogs.filter(l => l.machineId === m.id && new Date(l.date).getFullYear() === year)
+          .reduce((s, l) => s + parseFloat(l.cost || 0), 0)
+      })).filter(m => m.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 5);
+
+      if (machineData.length > 0) {
+        chart2.current = new Chart(canvasRef2.current, {
+          type: 'pie',
+          data: {
+            labels: machineData.map(m => m.name),
+            datasets: [{
+              data: machineData.map(m => m.cost),
+              backgroundColor: [
+                'rgba(20, 184, 166, 0.8)',
+                'rgba(34, 211, 238, 0.8)',
+                'rgba(147, 51, 234, 0.8)',
+                'rgba(236, 72, 153, 0.8)',
+                'rgba(251, 146, 60, 0.8)',
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: '#fff', font: { weight: 'bold' } } }
+            }
+          }
+        });
+      }
+    }
+
+    // Parts Usage Chart
+    if (canvasRef3.current) {
+      if (chart3.current) chart3.current.destroy();
+      
+      const partsData = parts.map(p => ({
+        name: p.name,
+        qty: partsUsage.filter(u => u.partId === p.id && new Date(u.date).getFullYear() === year)
+          .reduce((s, u) => s + parseInt(u.qty || 0), 0)
+      })).filter(p => p.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 10);
+
+      if (partsData.length > 0) {
+        chart3.current = new Chart(canvasRef3.current, {
+          type: 'bar',
+          data: {
+            labels: partsData.map(p => p.name),
+            datasets: [{
+              label: 'Quantity Used',
+              data: partsData.map(p => p.qty),
+              backgroundColor: 'rgba(20, 184, 166, 0.8)',
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              x: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } },
+              y: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } }
+            }
+          }
+        });
+      }
+    }
+
+    return () => {
+      if (chart1.current) chart1.current.destroy();
+      if (chart2.current) chart2.current.destroy();
+      if (chart3.current) chart3.current.destroy();
+    };
+  }, [machines, equipmentLogs, buildingLogs, parts, partsUsage, year]);
+
+  const exportEquipmentCSV = () => {
+    const data = machines.map(m => ({
+      Name: m.name,
+      Model: m.model,
+      Serial: m.serial,
+      Type: m.type,
+      PurchaseDate: m.purchaseDate,
+      Archived: m.archived ? 'Yes' : 'No'
+    }));
+    exportToCSV(data, `equipment-${year}.csv`);
+  };
+
+  const exportRepairsCSV = () => {
+    const data = equipmentLogs.filter(l => new Date(l.date).getFullYear() === year).map(l => ({
+      Date: l.date,
+      Machine: machines.find(m => m.id === l.machineId)?.name || 'Unknown',
+      Issue: l.issue,
+      Tech: l.tech,
+      Cost: l.cost,
+      Hours: l.hours,
+      Notes: l.notes
+    }));
+    exportToCSV(data, `repairs-${year}.csv`);
+  };
+
+  const exportPartsCSV = () => {
+    const data = parts.map(p => ({
+      Name: p.name,
+      SKU: p.sku,
+      Stock: p.stock,
+      MinStock: p.minStock,
+      Cost: p.cost,
+      Notes: p.notes
+    }));
+    exportToCSV(data, `parts-inventory-${year}.csv`);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
+          <Icon name="chart" size={24} /> REPORTS & ANALYTICS
+        </h2>
+        <div className="flex gap-2">
+          <button onClick={exportEquipmentCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+            <Icon name="download" size={16} /> EQUIPMENT
+          </button>
+          <button onClick={exportRepairsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+            <Icon name="download" size={16} /> REPAIRS
+          </button>
+          <button onClick={exportPartsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+            <Icon name="download" size={16} /> PARTS
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-4">
+          <h3 className="text-lg font-black text-white mb-4">MONTHLY EXPENSES ({year})</h3>
+          <div style={{ height: '300px' }}>
+            <canvas ref={canvasRef1}></canvas>
+          </div>
+        </div>
+
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-4">
+          <h3 className="text-lg font-black text-white mb-4">TOP 5 EQUIPMENT COSTS ({year})</h3>
+          <div style={{ height: '300px' }}>
+            <canvas ref={canvasRef2}></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-zinc-800 border-2 border-zinc-700 p-4">
+        <h3 className="text-lg font-black text-white mb-4">TOP 10 PARTS USED ({year})</h3>
+        <div style={{ height: '400px' }}>
+          <canvas ref={canvasRef3}></canvas>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// Machine Modal (from Sprint 1)
 const MachineModal = ({ machine, onClose, onSave }) => {
   const [form, setForm] = useState(machine || { name: '', model: '', serial: '', type: 'Washer', purchaseDate: '' });
 
@@ -924,10 +1537,10 @@ const MachineModal = ({ machine, onClose, onSave }) => {
   );
 };
 
-// Repair Modal Component - WITH AUTO PARTS DEDUCTION
+// Repair Modal (from Sprint 1 - with active machines filter)
 const RepairModal = ({ machines, parts, onClose, onSave }) => {
   const [form, setForm] = useState({
-    machineId: machines[0]?.id || '',
+    machineId: machines.filter(m => !m.archived)[0]?.id || '',
     date: new Date().toISOString().split('T')[0],
     issue: '',
     tech: '',
@@ -939,6 +1552,8 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
   const [photoFiles, setPhotoFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
   const fileRef = useRef(null);
+
+  const activeMachines = machines.filter(m => !m.archived);
 
   const addPart = () => {
     setSelectedParts([...selectedParts, { id: parts[0]?.id || '', qty: '1', cost: parts[0]?.cost || '0' }]);
@@ -996,7 +1611,7 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
             <div>
               <label className="block text-xs font-black text-teal-400 mb-2">MACHINE</label>
               <select required value={form.machineId} onChange={e => setForm({...form, machineId: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500">
-                {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                {activeMachines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
             <div>
@@ -1009,10 +1624,9 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
             <textarea required value={form.issue} onChange={e => setForm({...form, issue: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500 h-20" placeholder="Describe problem..." />
           </div>
           
-          {/* PARTS SECTION - AUTO DEDUCTION */}
           <div className="border-2 border-teal-600 p-4">
             <div className="flex justify-between items-center mb-3">
-              <label className="text-xs font-black text-teal-400">PARTS USED (AUTO-DEDUCTED FROM INVENTORY)</label>
+              <label className="text-xs font-black text-teal-400">PARTS USED (AUTO-DEDUCTED)</label>
               <button type="button" onClick={addPart} disabled={parts.length === 0} className="bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 text-white px-3 py-1 text-sm font-bold">
                 + ADD PART
               </button>
@@ -1098,7 +1712,7 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
             <button type="submit" className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-4 py-3 font-black border-2 border-teal-700 flex items-center justify-center gap-2">
-              <Icon name="save" size={16} /> SAVE & DEDUCT PARTS
+              <Icon name="save" size={16} /> SAVE & DEDUCT
             </button>
           </div>
         </form>
@@ -1107,7 +1721,7 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
   );
 };
 
-// Building Modal Component
+// Building Modal (from Sprint 1)
 const BuildingModal = ({ onClose, onSave }) => {
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -1229,6 +1843,137 @@ const BuildingModal = ({ onClose, onSave }) => {
   );
 };
 
+
+// Vendor Modal - NEW IN SPRINT 2
+const VendorModal = ({ vendor, onClose, onSave }) => {
+  const [form, setForm] = useState(vendor || { name: '', contact: '', phone: '', email: '', specialties: '', rate: '', notes: '' });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-teal-600 max-w-md w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-teal-400">{vendor ? 'EDIT' : 'ADD'} VENDOR</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">COMPANY NAME</label>
+            <input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., ABC HVAC" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">CONTACT PERSON</label>
+            <input type="text" value={form.contact} onChange={e => setForm({...form, contact: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., John Smith" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">PHONE</label>
+              <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="555-1234" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">EMAIL</label>
+              <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="email@..." />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">SPECIALTIES</label>
+            <input type="text" value={form.specialties} onChange={e => setForm({...form, specialties: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., HVAC, Plumbing" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">HOURLY RATE</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-teal-400 font-bold">$</span>
+              <input type="number" step="0.01" value={form.rate} onChange={e => setForm({...form, rate: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="0.00" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">NOTES</label>
+            <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500 h-20" placeholder="Additional info..." />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
+            <button type="submit" className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-4 py-3 font-black border-2 border-teal-700 flex items-center justify-center gap-2">
+              <Icon name="save" size={16} /> SAVE
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Part Modal - NEW IN SPRINT 2
+const PartModal = ({ part, vendors, onClose, onSave }) => {
+  const [form, setForm] = useState(part || { name: '', sku: '', stock: '0', minStock: '0', cost: '0', vendorId: '', notes: '' });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-teal-600 max-w-md w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-teal-400">{part ? 'EDIT' : 'ADD'} PART</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">PART NAME</label>
+            <input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., Belt V-123" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">SKU / PART NUMBER</label>
+            <input type="text" required value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., V123" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">CURRENT STOCK</label>
+              <input type="number" required min="0" value={form.stock} onChange={e => setForm({...form, stock: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">MIN STOCK</label>
+              <input type="number" required min="0" value={form.minStock} onChange={e => setForm({...form, minStock: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">UNIT COST</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-teal-400 font-bold">$</span>
+              <input type="number" step="0.01" required value={form.cost} onChange={e => setForm({...form, cost: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold outline-none focus:border-teal-500" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">VENDOR (optional)</label>
+            <select value={form.vendorId} onChange={e => setForm({...form, vendorId: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500">
+              <option value="">-- No Vendor --</option>
+              {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">NOTES</label>
+            <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500 h-20" placeholder="Additional info..." />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
+            <button type="submit" className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-4 py-3 font-black border-2 border-teal-700 flex items-center justify-center gap-2">
+              <Icon name="save" size={16} /> SAVE
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 // Render the app
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
