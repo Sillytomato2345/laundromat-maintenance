@@ -355,22 +355,23 @@ const App = () => {
       resource: { role: 'reader', type: 'anyone' },
     });
 
-    return `https://drive.google.com/uc?export=view&id=${result.id}`;
+    // Return just the file ID - we'll fetch the actual image data when needed
+    return result.id;
   };
 
   const addLog = async (log, photoFiles) => {
     setSyncStatus('Uploading photos...');
-    let photoUrls = '';
+    let photoIds = '';
     
     if (photoFiles && photoFiles.length > 0) {
       const uploads = await Promise.all(photoFiles.map(f => uploadPhoto(f)));
-      photoUrls = uploads.join(',');
+      photoIds = uploads.join(',');
     }
 
     const newLog = { 
       id: Date.now().toString(), 
       ...log,
-      photos: photoUrls 
+      photos: photoIds 
     };
     
     try {
@@ -405,13 +406,13 @@ const App = () => {
     const index = logs.findIndex(l => l.id === id);
     const existing = logs[index];
     
-    let photoUrls = existing.photos || '';
+    let photoIds = existing.photos || '';
     if (photoFiles && photoFiles.length > 0) {
       const uploads = await Promise.all(photoFiles.map(f => uploadPhoto(f)));
-      photoUrls = photoUrls ? `${photoUrls},${uploads.join(',')}` : uploads.join(',');
+      photoIds = photoIds ? `${photoIds},${uploads.join(',')}` : uploads.join(',');
     }
     
-    const updated = { ...existing, ...updates, photos: photoUrls };
+    const updated = { ...existing, ...updates, photos: photoIds };
     const rowNum = index + 2;
     
     try {
@@ -682,7 +683,7 @@ const LogsTab = ({ logs, machines, year, onAdd, onEdit, onDelete, onViewPhotos }
         <tbody>
           {logs.filter(l => new Date(l.date).getFullYear() === year).sort((a,b) => new Date(b.date) - new Date(a.date)).map(l => {
             const machine = machines.find(m => m.id === l.machineId);
-            const photoUrls = l.photos ? l.photos.split(',').filter(Boolean) : [];
+            const photoIds = l.photos ? l.photos.split(',').filter(Boolean) : [];
             return (
               <tr key={l.id} className="border-b border-zinc-700 hover:bg-zinc-750">
                 <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
@@ -692,9 +693,9 @@ const LogsTab = ({ logs, machines, year, onAdd, onEdit, onDelete, onViewPhotos }
                 <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
                 <td className="px-4 py-3 text-right text-orange-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>
                 <td className="px-4 py-3 text-center">
-                  {photoUrls.length > 0 ? (
-                    <button onClick={() => onViewPhotos(photoUrls)} className="text-orange-400 hover:text-orange-300 inline-flex items-center gap-1">
-                      <Icon name="image" size={16} /> {photoUrls.length}
+                  {photoIds.length > 0 ? (
+                    <button onClick={() => onViewPhotos(photoIds)} className="text-orange-400 hover:text-orange-300 inline-flex items-center gap-1">
+                      <Icon name="image" size={16} /> {photoIds.length}
                     </button>
                   ) : <span className="text-zinc-600">-</span>}
                 </td>
@@ -983,6 +984,38 @@ const LogFormModal = ({ log, machines, onClose, onSave }) => {
 
 const PhotoViewer = ({ photos, onClose }) => {
   const [index, setIndex] = useState(0);
+  const [imageUrls, setImageUrls] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadImages = async () => {
+      setLoading(true);
+      const urls = {};
+      for (const fileId of photos) {
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { Authorization: 'Bearer ' + window.gapi.client.getToken().access_token },
+        });
+        const blob = await response.blob();
+        urls[fileId] = URL.createObjectURL(blob);
+      }
+      setImageUrls(urls);
+      setLoading(false);
+    };
+    loadImages();
+
+    return () => {
+      Object.values(imageUrls).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [photos]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+        <div className="text-orange-400 text-xl font-bold">LOADING PHOTOS...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50">
       <div className="max-w-4xl w-full">
@@ -993,7 +1026,7 @@ const PhotoViewer = ({ photos, onClose }) => {
           </button>
         </div>
         <div className="bg-zinc-900 border-4 border-orange-600 p-4">
-          <img src={photos[index]} className="w-full h-auto max-h-[70vh] object-contain" />
+          <img src={imageUrls[photos[index]]} className="w-full h-auto max-h-[70vh] object-contain" alt="Repair photo" />
         </div>
         {photos.length > 1 && (
           <div className="flex justify-center gap-4 mt-4">
