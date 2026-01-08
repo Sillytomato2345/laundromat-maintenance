@@ -5,6 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Complete System</title>
   <meta name="description" content="Professional maintenance management for laundromats">
+  <style>
+    /* Enable horizontal scroll with mouse wheel */
+    .horizontal-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+    }
+    .horizontal-scroll::-webkit-scrollbar {
+      height: 8px;
+    }
+    .horizontal-scroll::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.2);
+    }
+    .horizontal-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.3);
+      border-radius: 4px;
+    }
+    .horizontal-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.5);
+    }
+  </style>
+  <script>
+    // Enable mouse wheel horizontal scrolling
+    document.addEventListener('DOMContentLoaded', () => {
+      const enableWheelScroll = () => {
+        const scrollContainers = document.querySelectorAll('.horizontal-scroll');
+        scrollContainers.forEach(container => {
+          container.addEventListener('wheel', (e) => {
+            if (e.deltaY !== 0) {
+              e.preventDefault();
+              container.scrollLeft += e.deltaY;
+            }
+          });
+        });
+      };
+      // Try to attach immediately and retry after React renders
+      enableWheelScroll();
+      setTimeout(enableWheelScroll, 1000);
+      setTimeout(enableWheelScroll, 3000);
+    });
+  </script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -383,7 +424,7 @@ const App = () => {
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-zinc-900 flex items-center justify-center">
-        <div className="text-orange-400 text-2xl font-black animate-pulse">MAINTENANCE PRO</div>
+        <div className="text-teal-400 text-2xl font-black animate-pulse">MAINTENANCE PRO</div>
       </div>
     );
   }
@@ -392,8 +433,8 @@ const App = () => {
   if (!isSignedIn) {
     return (
       <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
-        <div className="bg-zinc-800 border-4 border-orange-600 p-8 max-w-md">
-          <h1 className="text-4xl font-black text-orange-400 mb-2">MAINTENANCE PRO</h1>
+        <div className="bg-zinc-800 border-4 border-teal-600 p-8 max-w-md">
+          <h1 className="text-4xl font-black text-teal-400 mb-2">MAINTENANCE PRO</h1>
           <p className="text-zinc-400 mb-6 font-bold">Complete Management System</p>
           <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-6 space-y-1 text-sm text-zinc-300">
             <p>✨ Equipment & Building Maintenance</p>
@@ -404,7 +445,7 @@ const App = () => {
             <p>📊 Analytics & Export</p>
             <p>☁️ Auto-Sync Across Devices</p>
           </div>
-          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-4 font-black border-2 border-orange-700">
+          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700">
             SIGN IN WITH GOOGLE
           </button>
         </div>
@@ -424,38 +465,38 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-zinc-900 text-white">
-      <header className="bg-gradient-to-r from-orange-600 to-orange-500 border-b-4 border-orange-700">
+      <header className="bg-gradient-to-r from-slate-700 to-slate-600 border-b-4 border-slate-800">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
               <h1 className="text-4xl font-black text-white">MAINTENANCE PRO</h1>
-              <p className="text-orange-100 text-sm font-bold">Professional System</p>
+              <p className="text-slate-200 text-sm font-bold">Professional System</p>
             </div>
             
             <div className="flex gap-3 items-center flex-wrap">
-              {syncStatus && <div className="bg-zinc-800 border-2 border-orange-500 px-3 py-2 text-orange-400 text-sm font-bold">{syncStatus}</div>}
+              {syncStatus && <div className="bg-zinc-800 border-2 border-teal-500 px-3 py-2 text-teal-400 text-sm font-bold">{syncStatus}</div>}
               {locations.length > 1 && (
-                <select value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-3 py-2 font-bold text-sm">
+                <select value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)} className="bg-zinc-800 border-2 border-teal-500 text-teal-400 px-3 py-2 font-bold text-sm">
                   <option value="all">All Locations</option>
                   {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               )}
-              <button onClick={() => loadAllData(spreadsheetId)} disabled={loading} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-3 py-2 font-bold hover:bg-zinc-700 flex items-center gap-2 text-sm">
+              <button onClick={() => loadAllData(spreadsheetId)} disabled={loading} className="bg-zinc-800 border-2 border-teal-500 text-teal-400 px-3 py-2 font-bold hover:bg-zinc-700 flex items-center gap-2 text-sm">
                 <Icon name="refresh" size={16} />
                 {loading ? 'SYNCING' : 'REFRESH'}
               </button>
-              <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-3 py-2 font-bold text-sm">
+              <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-teal-500 text-teal-400 px-3 py-2 font-bold text-sm">
                 {years.map(y => <option key={y}>{y}</option>)}
               </select>
-              <div className="bg-zinc-800 border-2 border-orange-500 px-4 py-2">
-                <div className="text-xs text-orange-400 font-bold">ANNUAL</div>
+              <div className="bg-zinc-800 border-2 border-teal-500 px-4 py-2">
+                <div className="text-xs text-teal-400 font-bold">ANNUAL</div>
                 <div className="text-xl font-black text-white">${yearTotal.toFixed(2)}</div>
                 <div className="text-xs text-zinc-400">E: ${equipTotal.toFixed(2)} | B: ${bldgTotal.toFixed(2)}</div>
               </div>
             </div>
           </div>
           
-          <div className="flex gap-2 mt-4 border-t-2 border-orange-400 pt-4 overflow-x-auto">
+          <div className="flex gap-2 mt-4 border-t-2 border-slate-500 pt-4 overflow-x-auto horizontal-scroll">
             {[
               { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD' },
               { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT' },
@@ -467,7 +508,7 @@ const App = () => {
               { id: 'warranties', icon: 'shield', label: 'WARRANTIES' },
               { id: 'reports', icon: 'chart', label: 'REPORTS' },
             ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-orange-400 hover:bg-zinc-700'}`}>
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
                 <Icon name={tab.icon} size={18} />
                 {tab.label}
               </button>
@@ -486,15 +527,15 @@ const App = () => {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {activeTab === 'dashboard' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">DASHBOARD</h2><p className="text-zinc-400 mt-2">Shows alerts, stats, recent activity</p></div>}
-        {activeTab === 'equipment' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">EQUIPMENT</h2><p className="text-zinc-400 mt-2">Machine management with age tracking & ROI</p></div>}
-        {activeTab === 'equipmentLogs' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">EQUIPMENT LOGS</h2><p className="text-zinc-400 mt-2">Repairs with auto parts deduction</p></div>}
-        {activeTab === 'building' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">BUILDING</h2><p className="text-zinc-400 mt-2">Building maintenance tracking</p></div>}
-        {activeTab === 'vendors' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">VENDORS</h2><p className="text-zinc-400 mt-2">Contractor database & management</p></div>}
-        {activeTab === 'inventory' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">INVENTORY</h2><p className="text-zinc-400 mt-2">Parts tracking with alerts</p></div>}
-        {activeTab === 'maintenance' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">SCHEDULED MAINTENANCE</h2><p className="text-zinc-400 mt-2">Preventive maintenance tasks</p></div>}
-        {activeTab === 'warranties' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">WARRANTIES</h2><p className="text-zinc-400 mt-2">Warranty tracking & alerts</p></div>}
-        {activeTab === 'reports' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-orange-400">REPORTS</h2><p className="text-zinc-400 mt-2">Charts, analytics, CSV export</p></div>}
+        {activeTab === 'dashboard' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">DASHBOARD</h2><p className="text-zinc-400 mt-2">Shows alerts, stats, recent activity</p></div>}
+        {activeTab === 'equipment' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">EQUIPMENT</h2><p className="text-zinc-400 mt-2">Machine management with age tracking & ROI</p></div>}
+        {activeTab === 'equipmentLogs' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">EQUIPMENT LOGS</h2><p className="text-zinc-400 mt-2">Repairs with auto parts deduction</p></div>}
+        {activeTab === 'building' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">BUILDING</h2><p className="text-zinc-400 mt-2">Building maintenance tracking</p></div>}
+        {activeTab === 'vendors' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">VENDORS</h2><p className="text-zinc-400 mt-2">Contractor database & management</p></div>}
+        {activeTab === 'inventory' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">INVENTORY</h2><p className="text-zinc-400 mt-2">Parts tracking with alerts</p></div>}
+        {activeTab === 'maintenance' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">SCHEDULED MAINTENANCE</h2><p className="text-zinc-400 mt-2">Preventive maintenance tasks</p></div>}
+        {activeTab === 'warranties' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">WARRANTIES</h2><p className="text-zinc-400 mt-2">Warranty tracking & alerts</p></div>}
+        {activeTab === 'reports' && <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700"><h2 className="text-2xl font-black text-teal-400">REPORTS</h2><p className="text-zinc-400 mt-2">Charts, analytics, CSV export</p></div>}
       </main>
     </div>
   );
