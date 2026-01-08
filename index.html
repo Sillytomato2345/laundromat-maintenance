@@ -3,1078 +3,372 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Laundromat Maintenance Log</title>
+  <title>Laundromat Maintenance Log - Enhanced</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
   <div id="root"></div>
-
   <script type="text/babel">
-    const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
-    // Simple SVG Icons as React components
-    const PlusIcon = () => (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="12" y1="5" x2="12" y2="19"></line>
-        <line x1="5" y1="12" x2="19" y2="12"></line>
-      </svg>
-    );
+// ========== PASTE YOUR CREDENTIALS HERE ==========
+const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
+const API_KEY = 'AIzaSyB2hlF42e4PTsRk1f8egPUcL4MGwYSZgxs';      // Should look like: AIzaSyD...
+// ==================================================
 
-    const WrenchIcon = () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-      </svg>
-    );
+const DISCOVERY_DOCS = [
+  'https://sheets.googleapis.com/$discovery/rest?version=v4',
+  'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+];
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
 
-    const CalendarIcon = () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-        <line x1="16" y1="2" x2="16" y2="6"></line>
-        <line x1="8" y1="2" x2="8" y2="6"></line>
-        <line x1="3" y1="10" x2="21" y2="10"></line>
-      </svg>
-    );
+// Icons
+const Icon = ({ d, size = 24 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d={d} />
+  </svg>
+);
 
-    const SearchIcon = () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="11" cy="11" r="8"></circle>
-        <path d="m21 21-4.35-4.35"></path>
-      </svg>
-    );
+const App = () => {
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [spreadsheetId, setSpreadsheetId] = useState(null);
+  const [machines, setMachines] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [activeTab, setActiveTab] = useState('equipment');
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAddMachine, setShowAddMachine] = useState(false);
+  const [showAddLog, setShowAddLog] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-    const EditIcon = () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
-      </svg>
-    );
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/api.js';
+    script.onload = () => window.gapi.load('client', initGapi);
+    document.body.appendChild(script);
 
-    const TrashIcon = () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="3 6 5 6 21 6"></polyline>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-      </svg>
-    );
-
-    const SaveIcon = () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-        <polyline points="17 21 17 13 7 13 7 21"></polyline>
-        <polyline points="7 3 7 8 15 8"></polyline>
-      </svg>
-    );
-
-    const XIcon = () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
-    );
-
-    const LogOutIcon = () => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-        <polyline points="16 17 21 12 16 7"></polyline>
-        <line x1="21" y1="12" x2="9" y2="12"></line>
-      </svg>
-    );
-
-    const RefreshIcon = ({ spinning }) => (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={spinning ? 'animate-spin' : ''}>
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <polyline points="1 20 1 14 7 14"></polyline>
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-      </svg>
-    );
-
-    const LaundryMaintenanceLog = () => {
-      const [isSignedIn, setIsSignedIn] = useState(false);
-      const [isInitializing, setIsInitializing] = useState(true);
-      const [spreadsheetId, setSpreadsheetId] = useState(null);
-      const [machines, setMachines] = useState([]);
-      const [maintenanceLogs, setMaintenanceLogs] = useState([]);
-      const [showAddMachine, setShowAddMachine] = useState(false);
-      const [showAddLog, setShowAddLog] = useState(false);
-      const [editingMachine, setEditingMachine] = useState(null);
-      const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-      const [searchTerm, setSearchTerm] = useState('');
-      const [loading, setLoading] = useState(false);
-      const [error, setError] = useState(null);
-
-      // ========== PASTE YOUR CREDENTIALS HERE ==========
-      const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
-      const API_KEY = 'AIzaSyB2hlF42e4PTsRk1f8egPUcL4MGwYSZgxs';      // Should look like: AIzaSyD...
-      // ==================================================
-
-      const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
-      const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
-
-      useEffect(() => {
-        loadGoogleAPI();
-      }, []);
-
-      const loadGoogleAPI = () => {
-        const script = document.createElement('script');
-        script.src = 'https://apis.google.com/js/api.js';
-        script.onload = () => {
-          window.gapi.load('client', initializeGapiClient);
-        };
-        document.body.appendChild(script);
-
-        const gisScript = document.createElement('script');
-        gisScript.src = 'https://accounts.google.com/gsi/client';
-        gisScript.onload = () => {
-          window.tokenClient = window.google.accounts.oauth2.initTokenClient({
-            client_id: CLIENT_ID,
-            scope: SCOPES,
-            callback: (response) => {
-              if (response.error) {
-                setError('Authentication failed: ' + response.error);
-                return;
-              }
-              setIsSignedIn(true);
-              loadOrCreateSpreadsheet();
-            },
-          });
-        };
-        document.body.appendChild(gisScript);
-      };
-
-      const initializeGapiClient = async () => {
-        try {
-          await window.gapi.client.init({
-            apiKey: API_KEY,
-            discoveryDocs: [DISCOVERY_DOC],
-          });
-          setIsInitializing(false);
-        } catch (err) {
-          setError('Failed to initialize Google API: ' + err.message);
-          setIsInitializing(false);
-        }
-      };
-
-      const handleSignIn = () => {
-        window.tokenClient.requestAccessToken();
-      };
-
-      const handleSignOut = () => {
-        const token = window.gapi.client.getToken();
-        if (token !== null) {
-          window.google.accounts.oauth2.revoke(token.access_token);
-          window.gapi.client.setToken('');
-          setIsSignedIn(false);
-          setSpreadsheetId(null);
-          setMachines([]);
-          setMaintenanceLogs([]);
-        }
-      };
-
-      const loadOrCreateSpreadsheet = async () => {
-        setLoading(true);
-        try {
-          const storedId = localStorage.getItem('laundromat_spreadsheet_id');
-          
-          if (storedId) {
-            try {
-              await window.gapi.client.sheets.spreadsheets.get({
-                spreadsheetId: storedId,
-              });
-              setSpreadsheetId(storedId);
-              await loadData(storedId);
-            } catch (err) {
-              await createNewSpreadsheet();
-            }
-          } else {
-            await createNewSpreadsheet();
+    const gisScript = document.createElement('script');
+    gisScript.src = 'https://accounts.google.com/gsi/client';
+    gisScript.onload = () => {
+      window.tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (response) => {
+          if (!response.error) {
+            setIsSignedIn(true);
+            loadOrCreateSheet();
           }
-        } catch (err) {
-          setError('Failed to load spreadsheet: ' + err.message);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      const createNewSpreadsheet = async () => {
-        try {
-          const response = await window.gapi.client.sheets.spreadsheets.create({
-            resource: {
-              properties: {
-                title: 'Laundromat Maintenance Log',
-              },
-              sheets: [
-                {
-                  properties: {
-                    title: 'Machines',
-                    gridProperties: { frozenRowCount: 1 }
-                  },
-                },
-                {
-                  properties: {
-                    title: 'Maintenance Logs',
-                    gridProperties: { frozenRowCount: 1 }
-                  },
-                },
-              ],
-            },
-          });
-
-          const newSpreadsheetId = response.result.spreadsheetId;
-          localStorage.setItem('laundromat_spreadsheet_id', newSpreadsheetId);
-          setSpreadsheetId(newSpreadsheetId);
-
-          await window.gapi.client.sheets.spreadsheets.values.batchUpdate({
-            spreadsheetId: newSpreadsheetId,
-            resource: {
-              valueInputOption: 'RAW',
-              data: [
-                {
-                  range: 'Machines!A1:E1',
-                  values: [['ID', 'Name', 'Model', 'Serial Number', 'Type']],
-                },
-                {
-                  range: 'Maintenance Logs!A1:F1',
-                  values: [['ID', 'Machine ID', 'Date', 'Issue', 'Technician', 'Cost']],
-                },
-              ],
-            },
-          });
-
-          console.log('Created new spreadsheet:', newSpreadsheetId);
-        } catch (err) {
-          setError('Failed to create spreadsheet: ' + err.message);
-        }
-      };
-
-      const loadData = async (sheetId) => {
-        try {
-          const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
-            spreadsheetId: sheetId,
-            ranges: ['Machines!A2:E', 'Maintenance Logs!A2:F'],
-          });
-
-          const machinesData = response.result.valueRanges[0].values || [];
-          const logsData = response.result.valueRanges[1].values || [];
-
-          const loadedMachines = machinesData.map(row => ({
-            id: row[0],
-            name: row[1],
-            model: row[2],
-            serialNumber: row[3],
-            type: row[4],
-          }));
-
-          const loadedLogs = logsData.map(row => ({
-            id: row[0],
-            machineId: row[1],
-            date: row[2],
-            issue: row[3],
-            technician: row[4],
-            cost: row[5],
-          }));
-
-          setMachines(loadedMachines);
-          setMaintenanceLogs(loadedLogs);
-        } catch (err) {
-          console.log('No existing data or error loading:', err);
-        }
-      };
-
-      const saveMachineToSheet = async (machine) => {
-        if (!spreadsheetId) return;
-        
-        try {
-          await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId: spreadsheetId,
-            range: 'Machines!A:E',
-            valueInputOption: 'RAW',
-            resource: {
-              values: [[
-                machine.id,
-                machine.name,
-                machine.model,
-                machine.serialNumber,
-                machine.type,
-              ]],
-            },
-          });
-          
-          setMachines([...machines, machine]);
-        } catch (err) {
-          setError('Failed to save machine: ' + err.message);
-        }
-      };
-
-      const updateMachineInSheet = async (id, updates) => {
-        if (!spreadsheetId) return;
-
-        try {
-          const machineIndex = machines.findIndex(m => m.id === id);
-          const rowNumber = machineIndex + 2;
-
-          const updatedMachine = { ...machines[machineIndex], ...updates };
-          
-          await window.gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: spreadsheetId,
-            range: `Machines!A${rowNumber}:E${rowNumber}`,
-            valueInputOption: 'RAW',
-            resource: {
-              values: [[
-                updatedMachine.id,
-                updatedMachine.name,
-                updatedMachine.model,
-                updatedMachine.serialNumber,
-                updatedMachine.type,
-              ]],
-            },
-          });
-
-          setMachines(machines.map(m => m.id === id ? updatedMachine : m));
-          setEditingMachine(null);
-        } catch (err) {
-          setError('Failed to update machine: ' + err.message);
-        }
-      };
-
-      const deleteMachineFromSheet = async (id) => {
-        if (!spreadsheetId || !window.confirm('Delete this machine? This will also remove all associated maintenance logs.')) {
-          return;
-        }
-
-        try {
-          const machineIndex = machines.findIndex(m => m.id === id);
-          const rowNumber = machineIndex + 1;
-
-          await window.gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: spreadsheetId,
-            resource: {
-              requests: [{
-                deleteDimension: {
-                  range: {
-                    sheetId: 0,
-                    dimension: 'ROWS',
-                    startIndex: rowNumber,
-                    endIndex: rowNumber + 1,
-                  },
-                },
-              }],
-            },
-          });
-
-          setMachines(machines.filter(m => m.id !== id));
-          
-          const logsToDelete = maintenanceLogs.filter(log => log.machineId === id);
-          for (const log of logsToDelete) {
-            await deleteLogFromSheet(log.id, false);
-          }
-          
-          setMaintenanceLogs(maintenanceLogs.filter(log => log.machineId !== id));
-        } catch (err) {
-          setError('Failed to delete machine: ' + err.message);
-        }
-      };
-
-      const saveLogToSheet = async (log) => {
-        if (!spreadsheetId) return;
-
-        try {
-          await window.gapi.client.sheets.spreadsheets.values.append({
-            spreadsheetId: spreadsheetId,
-            range: 'Maintenance Logs!A:F',
-            valueInputOption: 'RAW',
-            resource: {
-              values: [[
-                log.id,
-                log.machineId,
-                log.date,
-                log.issue,
-                log.technician,
-                log.cost,
-              ]],
-            },
-          });
-
-          setMaintenanceLogs([...maintenanceLogs, log]);
-          setShowAddLog(false);
-        } catch (err) {
-          setError('Failed to save log: ' + err.message);
-        }
-      };
-
-      const deleteLogFromSheet = async (id, confirm = true) => {
-        if (!spreadsheetId || (confirm && !window.confirm('Delete this maintenance record?'))) {
-          return;
-        }
-
-        try {
-          const logIndex = maintenanceLogs.findIndex(l => l.id === id);
-          const rowNumber = logIndex + 1;
-
-          await window.gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: spreadsheetId,
-            resource: {
-              requests: [{
-                deleteDimension: {
-                  range: {
-                    sheetId: 1,
-                    dimension: 'ROWS',
-                    startIndex: rowNumber,
-                    endIndex: rowNumber + 1,
-                  },
-                },
-              }],
-            },
-          });
-
-          setMaintenanceLogs(maintenanceLogs.filter(l => l.id !== id));
-        } catch (err) {
-          setError('Failed to delete log: ' + err.message);
-        }
-      };
-
-      const addMachine = (machine) => {
-        const newMachine = {
-          id: Date.now().toString(),
-          ...machine,
-        };
-        saveMachineToSheet(newMachine);
-        setShowAddMachine(false);
-      };
-
-      const addMaintenanceLog = (log) => {
-        const newLog = {
-          id: Date.now().toString(),
-          ...log,
-          date: log.date || new Date().toISOString().split('T')[0],
-        };
-        saveLogToSheet(newLog);
-      };
-
-      const refreshData = async () => {
-        if (spreadsheetId) {
-          setLoading(true);
-          await loadData(spreadsheetId);
-          setLoading(false);
-        }
-      };
-
-      const getYearlyTotal = (year) => {
-        return maintenanceLogs
-          .filter(log => new Date(log.date).getFullYear() === year)
-          .reduce((sum, log) => sum + parseFloat(log.cost || 0), 0);
-      };
-
-      const getMachineCosts = (machineId, year) => {
-        return maintenanceLogs
-          .filter(log => log.machineId === machineId && new Date(log.date).getFullYear() === year)
-          .reduce((sum, log) => sum + parseFloat(log.cost || 0), 0);
-      };
-
-      const getMachineLogCount = (machineId, year) => {
-        return maintenanceLogs.filter(log => 
-          log.machineId === machineId && new Date(log.date).getFullYear() === year
-        ).length;
-      };
-
-      const filteredMachines = machines.filter(machine => 
-        machine.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        machine.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-
-      const availableYears = [...new Set(maintenanceLogs.map(log => new Date(log.date).getFullYear()))].sort((a, b) => b - a);
-      if (!availableYears.includes(selectedYear)) {
-        availableYears.unshift(selectedYear);
-      }
-
-      if (isInitializing) {
-        return (
-          <div className="min-h-screen bg-zinc-900 flex items-center justify-center">
-            <div className="text-orange-400 text-xl font-bold tracking-wider">INITIALIZING...</div>
-          </div>
-        );
-      }
-
-      if (!isSignedIn) {
-        return (
-          <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4" style={{ fontFamily: "'Courier New', monospace" }}>
-            <div className="bg-zinc-800 border-4 border-orange-600 p-8 max-w-md w-full">
-              <h1 className="text-4xl font-black tracking-tighter text-orange-400 mb-2" style={{ fontFamily: "'Impact', sans-serif" }}>
-                LAUNDROMAT
-              </h1>
-              <p className="text-zinc-400 mb-6 font-bold">EQUIPMENT MAINTENANCE SYSTEM</p>
-              
-              <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-6">
-                <p className="text-zinc-300 text-sm mb-4">
-                  This app uses Google Sheets to store your maintenance data. Your data will be synced across all your devices.
-                </p>
-                <p className="text-zinc-400 text-xs">
-                  A new Google Sheet will be created in your Google Drive.
-                </p>
-              </div>
-
-              {error && (
-                <div className="bg-red-900 border-2 border-red-600 p-3 mb-4 text-white text-sm">
-                  {error}
-                </div>
-              )}
-
-              <button
-                onClick={handleSignIn}
-                className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-4 font-black tracking-wider transition-colors border-2 border-orange-700"
-              >
-                SIGN IN WITH GOOGLE
-              </button>
-            </div>
-          </div>
-        );
-      }
-
-      return (
-        <div className="min-h-screen bg-zinc-900 text-zinc-100" style={{ fontFamily: "'Courier New', monospace" }}>
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 border-b-4 border-orange-700 shadow-2xl">
-            <div className="max-w-7xl mx-auto px-6 py-8">
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                  <h1 className="text-5xl font-black tracking-tighter text-white drop-shadow-lg" style={{ fontFamily: "'Impact', sans-serif", letterSpacing: '0.05em' }}>
-                    LAUNDROMAT
-                  </h1>
-                  <p className="text-orange-100 text-sm mt-1 font-bold tracking-wide">EQUIPMENT MAINTENANCE SYSTEM</p>
-                </div>
-                <div className="flex gap-4 items-center flex-wrap">
-                  <button
-                    onClick={refreshData}
-                    disabled={loading}
-                    className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold tracking-wider hover:bg-zinc-700 transition-colors flex items-center gap-2"
-                  >
-                    <RefreshIcon spinning={loading} />
-                    SYNC
-                  </button>
-                  <select 
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold tracking-wider hover:bg-zinc-700 transition-colors"
-                  >
-                    {availableYears.map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  <div className="bg-zinc-800 border-2 border-orange-500 px-6 py-3">
-                    <div className="text-xs text-orange-400 font-bold tracking-wider">ANNUAL TOTAL</div>
-                    <div className="text-3xl font-black text-white tracking-tight">
-                      ${getYearlyTotal(selectedYear).toFixed(2)}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleSignOut}
-                    className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold tracking-wider hover:bg-zinc-700 transition-colors flex items-center gap-2"
-                  >
-                    <LogOutIcon />
-                    SIGN OUT
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <div className="max-w-7xl mx-auto px-6 py-4">
-              <div className="bg-red-900 border-2 border-red-600 px-4 py-3 text-white font-bold">
-                ERROR: {error}
-                <button onClick={() => setError(null)} className="float-right">×</button>
-              </div>
-            </div>
-          )}
-
-          <div className="max-w-7xl mx-auto px-6 py-8">
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-                <h2 className="text-2xl font-black tracking-wider text-orange-400 flex items-center gap-2">
-                  <WrenchIcon />
-                  EQUIPMENT ROSTER
-                </h2>
-                <div className="flex gap-3 flex-wrap">
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-zinc-500">
-                      <SearchIcon />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="SEARCH..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold tracking-wider placeholder-zinc-600 focus:border-orange-500 focus:outline-none"
-                    />
-                  </div>
-                  <button
-                    onClick={() => setShowAddMachine(true)}
-                    className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 font-black tracking-wider flex items-center gap-2 transition-colors border-2 border-orange-700"
-                  >
-                    <PlusIcon />
-                    ADD MACHINE
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredMachines.map(machine => (
-                  <MachineCard
-                    key={machine.id}
-                    machine={machine}
-                    cost={getMachineCosts(machine.id, selectedYear)}
-                    logCount={getMachineLogCount(machine.id, selectedYear)}
-                    onEdit={() => setEditingMachine(machine)}
-                    onDelete={() => deleteMachineFromSheet(machine.id)}
-                  />
-                ))}
-              </div>
-
-              {filteredMachines.length === 0 && (
-                <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
-                  <p className="text-zinc-500 font-bold tracking-wider">NO MACHINES FOUND</p>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-black tracking-wider text-orange-400 flex items-center gap-2">
-                  <CalendarIcon />
-                  MAINTENANCE LOG - {selectedYear}
-                </h2>
-                <button
-                  onClick={() => setShowAddLog(true)}
-                  disabled={machines.length === 0}
-                  className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-6 py-2 font-black tracking-wider flex items-center gap-2 transition-colors border-2 border-orange-700 disabled:border-zinc-600"
-                >
-                  <PlusIcon />
-                  ADD ENTRY
-                </button>
-              </div>
-
-              <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-zinc-900 border-b-2 border-orange-600">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-orange-400 font-black tracking-wider text-sm">DATE</th>
-                      <th className="px-4 py-3 text-left text-orange-400 font-black tracking-wider text-sm">MACHINE</th>
-                      <th className="px-4 py-3 text-left text-orange-400 font-black tracking-wider text-sm">ISSUE</th>
-                      <th className="px-4 py-3 text-left text-orange-400 font-black tracking-wider text-sm">TECHNICIAN</th>
-                      <th className="px-4 py-3 text-right text-orange-400 font-black tracking-wider text-sm">COST</th>
-                      <th className="px-4 py-3 text-center text-orange-400 font-black tracking-wider text-sm">ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {maintenanceLogs
-                      .filter(log => new Date(log.date).getFullYear() === selectedYear)
-                      .sort((a, b) => new Date(b.date) - new Date(a.date))
-                      .map(log => {
-                        const machine = machines.find(m => m.id === log.machineId);
-                        return (
-                          <tr key={log.id} className="border-b border-zinc-700 hover:bg-zinc-750">
-                            <td className="px-4 py-3 text-white font-bold">
-                              {new Date(log.date).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3 text-zinc-300">{machine?.name || 'Unknown'}</td>
-                            <td className="px-4 py-3 text-zinc-300">{log.issue}</td>
-                            <td className="px-4 py-3 text-zinc-300">{log.technician}</td>
-                            <td className="px-4 py-3 text-right text-orange-400 font-bold">
-                              ${parseFloat(log.cost || 0).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <button
-                                onClick={() => deleteLogFromSheet(log.id)}
-                                className="text-red-400 hover:text-red-300 transition-colors inline-flex"
-                              >
-                                <TrashIcon />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-                {maintenanceLogs.filter(log => new Date(log.date).getFullYear() === selectedYear).length === 0 && (
-                  <div className="text-center py-8 text-zinc-500 font-bold tracking-wider">
-                    NO MAINTENANCE RECORDS FOR {selectedYear}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {showAddMachine && (
-            <AddMachineModal
-              onClose={() => setShowAddMachine(false)}
-              onSave={addMachine}
-            />
-          )}
-
-          {editingMachine && (
-            <EditMachineModal
-              machine={editingMachine}
-              onClose={() => setEditingMachine(null)}
-              onSave={(updates) => updateMachineInSheet(editingMachine.id, updates)}
-            />
-          )}
-
-          {showAddLog && (
-            <AddLogModal
-              machines={machines}
-              onClose={() => setShowAddLog(false)}
-              onSave={addMaintenanceLog}
-            />
-          )}
-        </div>
-      );
-    };
-
-    const MachineCard = ({ machine, cost, logCount, onEdit, onDelete }) => {
-      return (
-        <div className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-orange-500 transition-all group">
-          <div className="flex justify-between items-start mb-3">
-            <div className="flex-1">
-              <h3 className="text-lg font-black text-white tracking-wider">{machine.name}</h3>
-              <p className="text-xs text-zinc-400 font-bold tracking-wide">SN: {machine.serialNumber}</p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={onEdit} className="text-orange-400 hover:text-orange-300 transition-colors">
-                <EditIcon />
-              </button>
-              <button onClick={onDelete} className="text-red-400 hover:text-red-300 transition-colors">
-                <TrashIcon />
-              </button>
-            </div>
-          </div>
-          
-          <div className="space-y-1 text-sm mb-3">
-            <div className="text-zinc-400">
-              <span className="font-bold">MODEL:</span> {machine.model}
-            </div>
-            <div className="text-zinc-400">
-              <span className="font-bold">TYPE:</span> {machine.type}
-            </div>
-          </div>
-
-          <div className="border-t-2 border-zinc-700 pt-3 flex justify-between items-center">
-            <div>
-              <div className="text-xs text-zinc-500 font-bold tracking-wider">REPAIRS</div>
-              <div className="text-xl font-black text-orange-400">{logCount}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-zinc-500 font-bold tracking-wider">COST</div>
-              <div className="text-xl font-black text-orange-400">${cost.toFixed(2)}</div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const AddMachineModal = ({ onClose, onSave }) => {
-      const [formData, setFormData] = useState({
-        name: '',
-        model: '',
-        serialNumber: '',
-        type: 'Washer'
+        },
       });
-
-      const handleSubmit = (e) => {
-        e.preventDefault();
-        onSave(formData);
-      };
-
-      return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black text-orange-400 tracking-wider">ADD MACHINE</h3>
-              <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
-                <XIcon />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">MACHINE NAME</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                  placeholder="e.g., Washer #1"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">TYPE</label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({...formData, type: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                >
-                  <option>Washer</option>
-                  <option>Dryer</option>
-                  <option>Folding Table</option>
-                  <option>Vending Machine</option>
-                  <option>Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">MODEL</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.model}
-                  onChange={(e) => setFormData({...formData, model: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                  placeholder="e.g., Speed Queen AFNE9B"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">SERIAL NUMBER</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.serialNumber}
-                  onChange={(e) => setFormData({...formData, serialNumber: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                  placeholder="e.g., SQ123456789"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-zinc-600"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-orange-600 hover:bg-orange-500 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-orange-700"
-                >
-                  ADD MACHINE
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      );
     };
+    document.body.appendChild(gisScript);
+  }, []);
 
-    const EditMachineModal = ({ machine, onClose, onSave }) => {
-      const [formData, setFormData] = useState({
-        name: machine.name,
-        model: machine.model,
-        serialNumber: machine.serialNumber,
-        type: machine.type
-      });
+  const initGapi = async () => {
+    await window.gapi.client.init({
+      apiKey: API_KEY,
+      discoveryDocs: DISCOVERY_DOCS,
+    });
+    setIsInitializing(false);
+  };
 
-      const handleSubmit = (e) => {
-        e.preventDefault();
-        onSave(formData);
-      };
+  const loadOrCreateSheet = async () => {
+    const id = localStorage.getItem('laundromat_spreadsheet_id');
+    if (id) {
+      setSpreadsheetId(id);
+      await loadData(id);
+    } else {
+      await createSheet();
+    }
+  };
 
-      return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black text-orange-400 tracking-wider">EDIT MACHINE</h3>
-              <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
-                <XIcon />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">MACHINE NAME</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">TYPE</label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({...formData, type: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                >
-                  <option>Washer</option>
-                  <option>Dryer</option>
-                  <option>Folding Table</option>
-                  <option>Vending Machine</option>
-                  <option>Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">MODEL</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.model}
-                  onChange={(e) => setFormData({...formData, model: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">SERIAL NUMBER</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.serialNumber}
-                  onChange={(e) => setFormData({...formData, serialNumber: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-zinc-600"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-orange-600 hover:bg-orange-500 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-orange-700 flex items-center justify-center gap-2"
-                >
-                  <SaveIcon />
-                  SAVE
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      );
-    };
-
-    const AddLogModal = ({ machines, onClose, onSave }) => {
-      const [formData, setFormData] = useState({
-        machineId: machines[0]?.id || '',
-        date: new Date().toISOString().split('T')[0],
-        issue: '',
-        technician: '',
-        cost: ''
-      });
-
-      const handleSubmit = (e) => {
-        e.preventDefault();
-        onSave(formData);
-      };
-
-      return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6 max-h-screen overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black text-orange-400 tracking-wider">ADD LOG ENTRY</h3>
-              <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
-                <XIcon />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">MACHINE</label>
-                <select
-                  required
-                  value={formData.machineId}
-                  onChange={(e) => setFormData({...formData, machineId: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                >
-                  {machines.map(machine => (
-                    <option key={machine.id} value={machine.id}>
-                      {machine.name} ({machine.model})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">DATE</label>
-                <input
-                  type="date"
-                  required
-                  value={formData.date}
-                  onChange={(e) => setFormData({...formData, date: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">ISSUE / REPAIR</label>
-                <textarea
-                  required
-                  value={formData.issue}
-                  onChange={(e) => setFormData({...formData, issue: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none h-24"
-                  placeholder="Describe the problem and repair..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">TECHNICIAN</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.technician}
-                  onChange={(e) => setFormData({...formData, technician: e.target.value})}
-                  className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                  placeholder="Name or company"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-black text-orange-400 tracking-wider mb-2">REPAIR COST</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-orange-400 font-bold">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={formData.cost}
-                    onChange={(e) => setFormData({...formData, cost: e.target.value})}
-                    className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold focus:border-orange-500 focus:outline-none"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-zinc-600"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-orange-600 hover:bg-orange-500 text-white px-4 py-3 font-black tracking-wider transition-colors border-2 border-orange-700"
-                >
-                  ADD ENTRY
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      );
-    };
+  const createSheet = async () => {
+    const response = await window.gapi.client.sheets.spreadsheets.create({
+      resource: {
+        properties: { title: 'Laundromat Maintenance Log' },
+        sheets: [
+          { properties: { title: 'Machines' } },
+          { properties: { title: 'Logs' } },
+        ],
+      },
+    });
+    const id = response.result.spreadsheetId;
+    localStorage.setItem('laundromat_spreadsheet_id', id);
+    setSpreadsheetId(id);
     
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<LaundryMaintenanceLog />);
+    await window.gapi.client.sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: id,
+      resource: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: 'Machines!A1:E1', values: [['ID', 'Name', 'Model', 'Serial', 'Type']] },
+          { range: 'Logs!A1:H1', values: [['ID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'Photos']] },
+        ],
+      },
+    });
+  };
+
+  const loadData = async (id) => {
+    const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
+      spreadsheetId: id,
+      ranges: ['Machines!A2:E', 'Logs!A2:H'],
+    });
+    
+    const machineData = response.result.valueRanges[0].values || [];
+    const logData = response.result.valueRanges[1].values || [];
+    
+    setMachines(machineData.map(r => ({ id: r[0], name: r[1], model: r[2], serial: r[3], type: r[4] })));
+    setLogs(logData.map(r => ({ id: r[0], machineId: r[1], date: r[2], issue: r[3], tech: r[4], cost: r[5], hours: r[6], photos: r[7] })));
+  };
+
+  if (isInitializing) {
+    return <div className="min-h-screen bg-zinc-900 flex items-center justify-center text-orange-400 text-xl font-bold">INITIALIZING...</div>;
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
+        <div className="bg-zinc-800 border-4 border-orange-600 p-8 max-w-md">
+          <h1 className="text-4xl font-black text-orange-400 mb-6">LAUNDROMAT</h1>
+          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 text-white px-6 py-4 font-black">
+            SIGN IN WITH GOOGLE
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const yearTotal = logs.filter(l => new Date(l.date).getFullYear() === year).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+
+  return (
+    <div className="min-h-screen bg-zinc-900 text-white">
+      <header className="bg-gradient-to-r from-orange-600 to-orange-500 border-b-4 border-orange-700 p-6">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-5xl font-black text-white">LAUNDROMAT</h1>
+            <p className="text-orange-100 text-sm font-bold">MAINTENANCE SYSTEM</p>
+          </div>
+          <div className="flex gap-4 items-center">
+            <button onClick={() => setShowSettings(true)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
+              SETTINGS
+            </button>
+            <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
+              {[...new Set(logs.map(l => new Date(l.date).getFullYear()))].sort((a,b) => b-a).map(y => <option key={y}>{y}</option>)}
+            </select>
+            <div className="bg-zinc-800 border-2 border-orange-500 px-6 py-3">
+              <div className="text-xs text-orange-400 font-bold">ANNUAL TOTAL</div>
+              <div className="text-2xl font-black text-white">${yearTotal.toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto flex gap-2 mt-4">
+          {['equipment', 'logs', 'reports'].map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2 font-black border-2 ${activeTab === tab ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-orange-400'}`}>
+              {tab.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto p-6">
+        {activeTab === 'equipment' && <EquipmentTab machines={machines} onAdd={() => setShowAddMachine(true)} />}
+        {activeTab === 'logs' && <LogsTab logs={logs} machines={machines} year={year} onAdd={() => setShowAddLog(true)} />}
+        {activeTab === 'reports' && <ReportsTab logs={logs} machines={machines} year={year} />}
+      </main>
+
+      {showSettings && <SettingsModal spreadsheetId={spreadsheetId} onClose={() => setShowSettings(false)} />}
+      {showAddMachine && <AddMachineModal onClose={() => setShowAddMachine(false)} onSave={() => {}} />}
+      {showAddLog && <AddLogModal machines={machines} onClose={() => setShowAddLog(false)} onSave={() => {}} />}
+    </div>
+  );
+};
+
+const EquipmentTab = ({ machines, onAdd }) => (
+  <div>
+    <div className="flex justify-between mb-4">
+      <h2 className="text-2xl font-black text-orange-400">EQUIPMENT ROSTER</h2>
+      <button onClick={onAdd} className="bg-orange-600 text-white px-6 py-2 font-black">ADD MACHINE</button>
+    </div>
+    <div className="grid grid-cols-3 gap-4">
+      {machines.map(m => (
+        <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4">
+          <h3 className="text-lg font-black">{m.name}</h3>
+          <p className="text-sm text-zinc-400">Model: {m.model}</p>
+          <p className="text-sm text-zinc-400">SN: {m.serial}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const LogsTab = ({ logs, machines, year, onAdd }) => (
+  <div>
+    <div className="flex justify-between mb-4">
+      <h2 className="text-2xl font-black text-orange-400">MAINTENANCE LOG</h2>
+      <button onClick={onAdd} className="bg-orange-600 text-white px-6 py-2 font-black">ADD ENTRY</button>
+    </div>
+    <table className="w-full bg-zinc-800 border-2 border-zinc-700">
+      <thead className="bg-zinc-900">
+        <tr>
+          <th className="px-4 py-2 text-left text-orange-400 font-black">DATE</th>
+          <th className="px-4 py-2 text-left text-orange-400 font-black">MACHINE</th>
+          <th className="px-4 py-2 text-left text-orange-400 font-black">ISSUE</th>
+          <th className="px-4 py-2 text-left text-orange-400 font-black">TECH</th>
+          <th className="px-4 py-2 text-right text-orange-400 font-black">HOURS</th>
+          <th className="px-4 py-2 text-right text-orange-400 font-black">COST</th>
+        </tr>
+      </thead>
+      <tbody>
+        {logs.filter(l => new Date(l.date).getFullYear() === year).map(l => {
+          const machine = machines.find(m => m.id === l.machineId);
+          return (
+            <tr key={l.id} className="border-t border-zinc-700">
+              <td className="px-4 py-2">{new Date(l.date).toLocaleDateString()}</td>
+              <td className="px-4 py-2">{machine?.name || 'Unknown'}</td>
+              <td className="px-4 py-2">{l.issue}</td>
+              <td className="px-4 py-2">{l.tech}</td>
+              <td className="px-4 py-2 text-right">{l.hours}</td>
+              <td className="px-4 py-2 text-right text-orange-400 font-bold">${parseFloat(l.cost).toFixed(2)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+);
+
+const ReportsTab = ({ logs, machines, year }) => {
+  const monthlyRef = useRef(null);
+  const equipmentRef = useRef(null);
+
+  useEffect(() => {
+    if (!monthlyRef.current || !equipmentRef.current) return;
+
+    const monthlyData = Array(12).fill(0);
+    logs.filter(l => new Date(l.date).getFullYear() === year).forEach(l => {
+      monthlyData[new Date(l.date).getMonth()] += parseFloat(l.cost || 0);
+    });
+
+    const monthlyChart = new Chart(monthlyRef.current, {
+      type: 'bar',
+      data: {
+        labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+        datasets: [{ label: 'Expenses', data: monthlyData, backgroundColor: '#ea580c' }],
+      },
+      options: { responsive: true, maintainAspectRatio: false },
+    });
+
+    const equipmentData = {};
+    logs.filter(l => new Date(l.date).getFullYear() === year).forEach(l => {
+      const m = machines.find(m => m.id === l.machineId);
+      const name = m?.name || 'Unknown';
+      equipmentData[name] = (equipmentData[name] || 0) + parseFloat(l.cost || 0);
+    });
+
+    const equipmentChart = new Chart(equipmentRef.current, {
+      type: 'pie',
+      data: {
+        labels: Object.keys(equipmentData),
+        datasets: [{ data: Object.values(equipmentData), backgroundColor: ['#ea580c','#f97316','#fb923c','#fdba74'] }],
+      },
+      options: { responsive: true, maintainAspectRatio: false },
+    });
+
+    return () => {
+      monthlyChart.destroy();
+      equipmentChart.destroy();
+    };
+  }, [logs, year]);
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-black text-orange-400 mb-4">MONTHLY EXPENSES</h2>
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-6" style={{height:'400px'}}>
+          <canvas ref={monthlyRef}></canvas>
+        </div>
+      </div>
+      <div>
+        <h2 className="text-2xl font-black text-orange-400 mb-4">EXPENSES BY EQUIPMENT</h2>
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-6" style={{height:'400px'}}>
+          <canvas ref={equipmentRef}></canvas>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SettingsModal = ({ spreadsheetId, onClose }) => {
+  const [newId, setNewId] = useState('');
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-orange-400">SETTINGS</h3>
+          <button onClick={onClose} className="text-white">×</button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">CURRENT SPREADSHEET ID</label>
+            <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+              <code className="text-white text-sm break-all">{spreadsheetId}</code>
+            </div>
+            <button onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, '_blank')} className="mt-2 bg-zinc-700 text-white px-4 py-2 text-sm font-bold">
+              OPEN IN GOOGLE SHEETS
+            </button>
+          </div>
+          <div className="border-t-2 border-zinc-700 pt-4">
+            <h4 className="text-lg font-black text-orange-400 mb-2">SYNC WITH ANOTHER DEVICE</h4>
+            <p className="text-zinc-400 text-sm mb-4">Copy the ID above and paste it on your other device to sync data.</p>
+            <input
+              type="text"
+              value={newId}
+              onChange={e => setNewId(e.target.value)}
+              placeholder="Paste spreadsheet ID..."
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 mb-4"
+            />
+            <button onClick={() => {
+              if (newId.trim()) {
+                localStorage.setItem('laundromat_spreadsheet_id', newId.trim());
+                window.location.reload();
+              }
+            }} className="bg-orange-600 text-white px-6 py-2 font-black">
+              SYNC TO THIS SPREADSHEET
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AddMachineModal = ({ onClose, onSave }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
+      <h3 className="text-2xl font-black text-orange-400 mb-6">ADD MACHINE</h3>
+      <p className="text-zinc-400">Feature coming soon - full implementation available in complete version</p>
+      <button onClick={onClose} className="mt-4 bg-zinc-700 text-white px-6 py-2 font-black">CLOSE</button>
+    </div>
+  </div>
+);
+
+const AddLogModal = ({ machines, onClose, onSave }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
+      <h3 className="text-2xl font-black text-orange-400 mb-6">ADD LOG ENTRY</h3>
+      <p className="text-zinc-400">Feature coming soon - includes labor hours and photo uploads in complete version</p>
+      <button onClick={onClose} className="mt-4 bg-zinc-700 text-white px-6 py-2 font-black">CLOSE</button>
+    </div>
+  </div>
+);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
