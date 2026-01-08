@@ -518,7 +518,7 @@ const App = () => {
       locked: false
     };
 
-    try:
+    try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'Building Logs!A:K',
