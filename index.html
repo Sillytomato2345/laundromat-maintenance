@@ -691,11 +691,6 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
     </div>
   );
 };
-
-// Due to file size, I need to split this - continuing in next part
-// This is getting large. Let me create the foundation working first
-
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
@@ -1237,3 +1232,9 @@ const BuildingModal = ({ onClose, onSave }) => {
   );
 };
 
+
+// Render the app
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
