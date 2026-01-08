@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Laundromat Maintenance Log</title>
+  <title>Laundromat Maintenance Log - Complete</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -27,17 +27,44 @@ const DISCOVERY_DOCS = [
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
 const CONFIG_FILE_NAME = 'laundromat_config.json';
 
+// Simple Icons
+const Icon = ({ name, size = 20 }) => {
+  const paths = {
+    plus: "M12 5v14m-7-7h14",
+    wrench: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+    calendar: "M3 4h18M3 4v16h18V4M16 2v4M8 2v4M3 10h18",
+    search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+    edit: "M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z",
+    trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+    save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z",
+    x: "M18 6L6 18M6 6l12 12",
+    image: "M3 3h18v18H3zM8.5 8.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM21 15l-5-5-11 11",
+    refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
+    chart: "M18 20V10M12 20V4M6 20v-6",
+    settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={paths[name]} />
+    </svg>
+  );
+};
+
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [spreadsheetId, setSpreadsheetId] = useState(null);
+  const [folderId, setFolderId] = useState(null);
   const [machines, setMachines] = useState([]);
   const [logs, setLogs] = useState([]);
   const [year, setYear] = useState(new Date().getFullYear());
   const [activeTab, setActiveTab] = useState('equipment');
   const [showSettings, setShowSettings] = useState(false);
   const [showAddMachine, setShowAddMachine] = useState(false);
+  const [showEditMachine, setShowEditMachine] = useState(null);
   const [showAddLog, setShowAddLog] = useState(false);
+  const [showEditLog, setShowEditLog] = useState(null);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [syncStatus, setSyncStatus] = useState('');
@@ -73,11 +100,9 @@ const App = () => {
     setIsInitializing(false);
   };
 
-  // Load spreadsheet ID from Google Drive appDataFolder (automatic cloud sync)
   const loadFromCloud = async () => {
-    setSyncStatus('Checking for existing data in cloud...');
+    setSyncStatus('Loading from cloud...');
     try {
-      // Search for config file in appDataFolder
       const response = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
         q: `name='${CONFIG_FILE_NAME}'`,
@@ -85,7 +110,6 @@ const App = () => {
       });
 
       if (response.result.files && response.result.files.length > 0) {
-        // Config file exists - download it
         const fileId = response.result.files[0].id;
         const configResponse = await window.gapi.client.drive.files.get({
           fileId: fileId,
@@ -93,106 +117,117 @@ const App = () => {
         });
         
         const config = JSON.parse(configResponse.body);
-        setSyncStatus('Found existing spreadsheet in cloud!');
         setSpreadsheetId(config.spreadsheetId);
-        localStorage.setItem('laundromat_spreadsheet_id', config.spreadsheetId);
+        setFolderId(config.folderId || null);
         await loadData(config.spreadsheetId);
       } else {
-        // No config file - create new spreadsheet
-        setSyncStatus('Creating new spreadsheet...');
         await createSheetAndSaveToCloud();
       }
     } catch (err) {
       console.error('Cloud sync error:', err);
-      setError('Cloud sync failed: ' + err.message);
-      // Fallback to local storage
-      const localId = localStorage.getItem('laundromat_spreadsheet_id');
-      if (localId) {
-        setSpreadsheetId(localId);
-        await loadData(localId);
-      }
+      setError('Cloud sync failed. Check console.');
     }
     setSyncStatus('');
   };
 
-  // Save spreadsheet ID to Google Drive appDataFolder
-  const saveToCloud = async (sheetId) => {
+  const saveToCloud = async (sheetId, folder) => {
     try {
-      const config = { spreadsheetId: sheetId, lastUpdated: new Date().toISOString() };
+      const config = { 
+        spreadsheetId: sheetId, 
+        folderId: folder,
+        lastUpdated: new Date().toISOString() 
+      };
       const blob = new Blob([JSON.stringify(config)], { type: 'application/json' });
       
-      // Check if config file already exists
       const searchResponse = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
         q: `name='${CONFIG_FILE_NAME}'`,
         fields: 'files(id)',
       });
 
-      if (searchResponse.result.files && searchResponse.result.files.length > 0) {
-        // Update existing file
-        const fileId = searchResponse.result.files[0].id;
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify({ name: CONFIG_FILE_NAME })], { type: 'application/json' }));
-        form.append('file', blob);
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({
+        name: CONFIG_FILE_NAME,
+        parents: ['appDataFolder'],
+      })], { type: 'application/json' }));
+      form.append('file', blob);
 
+      if (searchResponse.result.files && searchResponse.result.files.length > 0) {
+        const fileId = searchResponse.result.files[0].id;
         await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
           method: 'PATCH',
           headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
           body: form,
         });
       } else {
-        // Create new file
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify({
-          name: CONFIG_FILE_NAME,
-          parents: ['appDataFolder'],
-        })], { type: 'application/json' }));
-        form.append('file', blob);
-
         await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
           method: 'POST',
           headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
           body: form,
         });
       }
-      
-      console.log('✓ Spreadsheet ID saved to cloud');
     } catch (err) {
       console.error('Failed to save to cloud:', err);
     }
   };
 
+  const getOrCreateFolder = async () => {
+    try {
+      const response = await window.gapi.client.drive.files.list({
+        q: "name='Laundromat Maintenance Photos' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+        fields: 'files(id)',
+      });
+
+      if (response.result.files && response.result.files.length > 0) {
+        return response.result.files[0].id;
+      }
+
+      const createResponse = await window.gapi.client.drive.files.create({
+        resource: {
+          name: 'Laundromat Maintenance Photos',
+          mimeType: 'application/vnd.google-apps.folder',
+        },
+        fields: 'id',
+      });
+
+      return createResponse.result.id;
+    } catch (err) {
+      console.error('Folder error:', err);
+      return null;
+    }
+  };
+
   const createSheetAndSaveToCloud = async () => {
+    setSyncStatus('Creating spreadsheet...');
     const response = await window.gapi.client.sheets.spreadsheets.create({
       resource: {
         properties: { title: 'Laundromat Maintenance Log' },
         sheets: [
-          { properties: { title: 'Machines' } },
-          { properties: { title: 'Logs' } },
+          { properties: { title: 'Machines', gridProperties: { frozenRowCount: 1 } } },
+          { properties: { title: 'Logs', gridProperties: { frozenRowCount: 1 } } },
         ],
       },
     });
     
     const id = response.result.spreadsheetId;
-    setSpreadsheetId(id);
-    localStorage.setItem('laundromat_spreadsheet_id', id);
+    const folder = await getOrCreateFolder();
     
-    // Save to cloud for automatic sync
-    await saveToCloud(id);
+    setSpreadsheetId(id);
+    setFolderId(folder);
+    await saveToCloud(id, folder);
     
     await window.gapi.client.sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: id,
       resource: {
         valueInputOption: 'RAW',
         data: [
-          { range: 'Machines!A1:E1', values: [['ID', 'Name', 'Model', 'Serial', 'Type']] },
-          { range: 'Logs!A1:H1', values: [['ID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'Photos']] },
+          { range: 'Machines!A1:E1', values: [['ID', 'Name', 'Model', 'Serial Number', 'Type']] },
+          { range: 'Logs!A1:I1', values: [['ID', 'MachineID', 'Date', 'Issue', 'Technician', 'Cost', 'Labor Hours', 'Notes', 'Photos']] },
         ],
       },
     });
     
-    setSyncStatus('✓ Spreadsheet created and synced to cloud!');
-    setTimeout(() => setSyncStatus(''), 3000);
+    setSyncStatus('');
   };
 
   const loadData = async (id) => {
@@ -200,24 +235,229 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Machines!A2:E', 'Logs!A2:H'],
+        ranges: ['Machines!A2:E', 'Logs!A2:I'],
       });
       
       const machineData = response.result.valueRanges[0].values || [];
       const logData = response.result.valueRanges[1].values || [];
       
-      setMachines(machineData.map(r => ({ id: r[0], name: r[1], model: r[2], serial: r[3], type: r[4] })));
-      setLogs(logData.map(r => ({ id: r[0], machineId: r[1], date: r[2], issue: r[3], tech: r[4], cost: r[5], hours: r[6], photos: r[7] })));
+      setMachines(machineData.map(r => ({ 
+        id: r[0], 
+        name: r[1], 
+        model: r[2], 
+        serial: r[3], 
+        type: r[4] 
+      })));
+      
+      setLogs(logData.map(r => ({ 
+        id: r[0], 
+        machineId: r[1], 
+        date: r[2], 
+        issue: r[3], 
+        tech: r[4], 
+        cost: r[5], 
+        hours: r[6] || '0',
+        notes: r[7] || '',
+        photos: r[8] || '' 
+      })));
     } catch (err) {
-      setError('Failed to load data: ' + err.message);
+      setError('Failed to load: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const refreshData = async () => {
-    if (spreadsheetId) {
-      await loadData(spreadsheetId);
+  const addMachine = async (machine) => {
+    const newMachine = { id: Date.now().toString(), ...machine };
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Machines!A:E',
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[newMachine.id, newMachine.name, newMachine.model, newMachine.serial, newMachine.type]],
+        },
+      });
+      setMachines([...machines, newMachine]);
+      setShowAddMachine(false);
+    } catch (err) {
+      setError('Failed to add machine');
+    }
+  };
+
+  const editMachine = async (id, updates) => {
+    try {
+      const index = machines.findIndex(m => m.id === id);
+      const rowNum = index + 2;
+      const updated = { ...machines[index], ...updates };
+      
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Machines!A${rowNum}:E${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[updated.id, updated.name, updated.model, updated.serial, updated.type]],
+        },
+      });
+      
+      setMachines(machines.map(m => m.id === id ? updated : m));
+      setShowEditMachine(null);
+    } catch (err) {
+      setError('Failed to update machine');
+    }
+  };
+
+  const deleteMachine = async (id) => {
+    if (!window.confirm('Delete this machine?')) return;
+    try {
+      const index = machines.findIndex(m => m.id === id);
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+          requests: [{
+            deleteDimension: {
+              range: { sheetId: 0, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 },
+            },
+          }],
+        },
+      });
+      setMachines(machines.filter(m => m.id !== id));
+    } catch (err) {
+      setError('Failed to delete machine');
+    }
+  };
+
+  const uploadPhoto = async (file) => {
+    if (!folderId) {
+      const folder = await getOrCreateFolder();
+      setFolderId(folder);
+    }
+
+    const metadata = {
+      name: `${Date.now()}-${file.name}`,
+      parents: [folderId],
+    };
+
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+
+    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+      method: 'POST',
+      headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
+      body: form,
+    });
+
+    const result = await response.json();
+    
+    await window.gapi.client.drive.permissions.create({
+      fileId: result.id,
+      resource: { role: 'reader', type: 'anyone' },
+    });
+
+    return `https://drive.google.com/uc?export=view&id=${result.id}`;
+  };
+
+  const addLog = async (log, photoFiles) => {
+    setSyncStatus('Uploading photos...');
+    let photoUrls = '';
+    
+    if (photoFiles && photoFiles.length > 0) {
+      const uploads = await Promise.all(photoFiles.map(f => uploadPhoto(f)));
+      photoUrls = uploads.join(',');
+    }
+
+    const newLog = { 
+      id: Date.now().toString(), 
+      ...log,
+      photos: photoUrls 
+    };
+    
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Logs!A:I',
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[
+            newLog.id, 
+            newLog.machineId, 
+            newLog.date, 
+            newLog.issue, 
+            newLog.tech, 
+            newLog.cost, 
+            newLog.hours,
+            newLog.notes || '',
+            newLog.photos
+          ]],
+        },
+      });
+      setLogs([...logs, newLog]);
+      setShowAddLog(false);
+    } catch (err) {
+      setError('Failed to add log');
+    }
+    setSyncStatus('');
+  };
+
+  const editLog = async (id, updates, photoFiles) => {
+    setSyncStatus('Updating...');
+    const index = logs.findIndex(l => l.id === id);
+    const existing = logs[index];
+    
+    let photoUrls = existing.photos || '';
+    if (photoFiles && photoFiles.length > 0) {
+      const uploads = await Promise.all(photoFiles.map(f => uploadPhoto(f)));
+      photoUrls = photoUrls ? `${photoUrls},${uploads.join(',')}` : uploads.join(',');
+    }
+    
+    const updated = { ...existing, ...updates, photos: photoUrls };
+    const rowNum = index + 2;
+    
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Logs!A${rowNum}:I${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[
+            updated.id,
+            updated.machineId,
+            updated.date,
+            updated.issue,
+            updated.tech,
+            updated.cost,
+            updated.hours,
+            updated.notes || '',
+            updated.photos
+          ]],
+        },
+      });
+      setLogs(logs.map(l => l.id === id ? updated : l));
+      setShowEditLog(null);
+    } catch (err) {
+      setError('Failed to update log');
+    }
+    setSyncStatus('');
+  };
+
+  const deleteLog = async (id) => {
+    if (!window.confirm('Delete this log?')) return;
+    try {
+      const index = logs.findIndex(l => l.id === id);
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+          requests: [{
+            deleteDimension: {
+              range: { sheetId: 1, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 },
+            },
+          }],
+        },
+      });
+      setLogs(logs.filter(l => l.id !== id));
+    } catch (err) {
+      setError('Failed to delete log');
     }
   };
 
@@ -230,14 +470,13 @@ const App = () => {
       <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
         <div className="bg-zinc-800 border-4 border-orange-600 p-8 max-w-md">
           <h1 className="text-4xl font-black text-orange-400 mb-2" style={{fontFamily:"Impact"}}>LAUNDROMAT</h1>
-          <p className="text-zinc-400 mb-6 font-bold">EQUIPMENT MAINTENANCE SYSTEM</p>
+          <p className="text-zinc-400 mb-6 font-bold">MAINTENANCE SYSTEM</p>
           <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-6">
-            <p className="text-zinc-300 text-sm mb-2">✨ <strong>Automatic Cloud Sync</strong></p>
-            <p className="text-zinc-400 text-xs">
-              Sign in once, access your data from any device. Your spreadsheet ID is automatically synced across all your devices via Google Drive.
-            </p>
+            <p className="text-zinc-300 text-sm">✨ Auto-syncs across all devices</p>
+            <p className="text-zinc-300 text-sm">📸 Photo uploads for repairs</p>
+            <p className="text-zinc-300 text-sm">📊 Expense tracking & charts</p>
           </div>
-          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-4 font-black transition-colors border-2 border-orange-700">
+          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-4 font-black border-2 border-orange-700">
             SIGN IN WITH GOOGLE
           </button>
         </div>
@@ -253,10 +492,10 @@ const App = () => {
     <div className="min-h-screen bg-zinc-900 text-white">
       <header className="bg-gradient-to-r from-orange-600 to-orange-500 border-b-4 border-orange-700 p-6">
         <div className="max-w-7xl mx-auto">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
               <h1 className="text-5xl font-black text-white" style={{fontFamily:"Impact"}}>LAUNDROMAT</h1>
-              <p className="text-orange-100 text-sm font-bold tracking-wide">MAINTENANCE SYSTEM</p>
+              <p className="text-orange-100 text-sm font-bold">MAINTENANCE SYSTEM</p>
             </div>
             <div className="flex gap-4 items-center flex-wrap">
               {syncStatus && (
@@ -264,25 +503,30 @@ const App = () => {
                   {syncStatus}
                 </div>
               )}
-              <button onClick={refreshData} disabled={loading} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700">
+              <button onClick={() => loadData(spreadsheetId)} disabled={loading} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700 flex items-center gap-2">
+                <Icon name="refresh" size={16} />
                 {loading ? 'SYNCING...' : 'REFRESH'}
               </button>
-              <button onClick={() => setShowSettings(true)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700">
+              <button onClick={() => setShowSettings(true)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700 flex items-center gap-2">
+                <Icon name="settings" size={16} />
                 SETTINGS
               </button>
               <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
                 {years.map(y => <option key={y}>{y}</option>)}
               </select>
               <div className="bg-zinc-800 border-2 border-orange-500 px-6 py-3">
-                <div className="text-xs text-orange-400 font-bold tracking-wider">ANNUAL TOTAL</div>
+                <div className="text-xs text-orange-400 font-bold">ANNUAL TOTAL</div>
                 <div className="text-2xl font-black text-white">${yearTotal.toFixed(2)}</div>
               </div>
             </div>
           </div>
           <div className="flex gap-2 mt-6 border-t-2 border-orange-400 pt-4">
             {['equipment', 'logs', 'reports'].map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2 font-black border-2 transition-colors ${activeTab === tab ? 'bg-orange-600 text-white border-orange-700' : 'bg-zinc-800 text-orange-400 border-zinc-700 hover:bg-zinc-700'}`}>
-                {tab.toUpperCase()}
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2 font-black border-2 ${activeTab === tab ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-orange-400 hover:bg-zinc-700'}`}>
+                {tab === 'equipment' && <Icon name="wrench" />}
+                {tab === 'logs' && <Icon name="calendar" />}
+                {tab === 'reports' && <Icon name="chart" />}
+                {' '}{tab.toUpperCase()}
               </button>
             ))}
           </div>
@@ -292,66 +536,117 @@ const App = () => {
       {error && (
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="bg-red-900 border-2 border-red-600 px-4 py-3 text-white font-bold">
-            ERROR: {error}
-            <button onClick={() => setError(null)} className="float-right">×</button>
+            {error} <button onClick={() => setError(null)} className="float-right">×</button>
           </div>
         </div>
       )}
 
       <main className="max-w-7xl mx-auto p-6">
-        {activeTab === 'equipment' && <EquipmentTab machines={machines} onAdd={() => setShowAddMachine(true)} year={year} logs={logs} />}
-        {activeTab === 'logs' && <LogsTab logs={logs} machines={machines} year={year} onAdd={() => setShowAddLog(true)} />}
+        {activeTab === 'equipment' && (
+          <EquipmentTab 
+            machines={machines} 
+            logs={logs} 
+            year={year}
+            onAdd={() => setShowAddMachine(true)}
+            onEdit={setShowEditMachine}
+            onDelete={deleteMachine}
+          />
+        )}
+        {activeTab === 'logs' && (
+          <LogsTab 
+            logs={logs} 
+            machines={machines} 
+            year={year}
+            onAdd={() => setShowAddLog(true)}
+            onEdit={setShowEditLog}
+            onDelete={deleteLog}
+            onViewPhotos={setShowPhotoViewer}
+          />
+        )}
         {activeTab === 'reports' && <ReportsTab logs={logs} machines={machines} year={year} />}
       </main>
 
       {showSettings && <SettingsModal spreadsheetId={spreadsheetId} onClose={() => setShowSettings(false)} />}
-      {showAddMachine && <AddMachineModal onClose={() => setShowAddMachine(false)} />}
-      {showAddLog && <AddLogModal machines={machines} onClose={() => setShowAddLog(false)} />}
+      {showAddMachine && <MachineFormModal onClose={() => setShowAddMachine(false)} onSave={addMachine} />}
+      {showEditMachine && <MachineFormModal machine={showEditMachine} onClose={() => setShowEditMachine(null)} onSave={(updates) => editMachine(showEditMachine.id, updates)} />}
+      {showAddLog && <LogFormModal machines={machines} onClose={() => setShowAddLog(false)} onSave={addLog} />}
+      {showEditLog && <LogFormModal log={showEditLog} machines={machines} onClose={() => setShowEditLog(null)} onSave={(updates, files) => editLog(showEditLog.id, updates, files)} />}
+      {showPhotoViewer && <PhotoViewer photos={showPhotoViewer} onClose={() => setShowPhotoViewer(null)} />}
     </div>
   );
 };
 
-const EquipmentTab = ({ machines, onAdd, year, logs }) => {
-  const getMachineCost = (machineId) => {
-    return logs.filter(l => l.machineId === machineId && new Date(l.date).getFullYear() === year)
-      .reduce((s, l) => s + parseFloat(l.cost || 0), 0);
-  };
+const EquipmentTab = ({ machines, logs, year, onAdd, onEdit, onDelete }) => {
+  const [search, setSearch] = useState('');
+  
+  const filtered = machines.filter(m => 
+    m.name?.toLowerCase().includes(search.toLowerCase()) ||
+    m.model?.toLowerCase().includes(search.toLowerCase())
+  );
 
-  const getMachineRepairs = (machineId) => {
-    return logs.filter(l => l.machineId === machineId && new Date(l.date).getFullYear() === year).length;
-  };
+  const getCost = (id) => logs.filter(l => l.machineId === id && new Date(l.date).getFullYear() === year)
+    .reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+  const getCount = (id) => logs.filter(l => l.machineId === id && new Date(l.date).getFullYear() === year).length;
 
   return (
     <div>
-      <div className="flex justify-between mb-4">
-        <h2 className="text-2xl font-black text-orange-400">EQUIPMENT ROSTER</h2>
-        <button onClick={onAdd} className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 font-black border-2 border-orange-700">
-          ADD MACHINE
-        </button>
+      <div className="flex justify-between mb-4 flex-wrap gap-4">
+        <h2 className="text-2xl font-black text-orange-400 flex items-center gap-2">
+          <Icon name="wrench" size={24} /> EQUIPMENT ROSTER
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+              <Icon name="search" size={16} />
+            </div>
+            <input
+              type="text"
+              placeholder="SEARCH..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold focus:border-orange-500 outline-none"
+            />
+          </div>
+          <button onClick={onAdd} className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 font-black border-2 border-orange-700 flex items-center gap-2">
+            <Icon name="plus" /> ADD MACHINE
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {machines.map(m => (
-          <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-orange-500 transition-all">
-            <h3 className="text-lg font-black text-white">{m.name}</h3>
-            <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
-            <div className="space-y-1 text-sm mt-2 mb-3">
+        {filtered.map(m => (
+          <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-orange-500 transition">
+            <div className="flex justify-between mb-3">
+              <div>
+                <h3 className="text-lg font-black text-white">{m.name}</h3>
+                <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => onEdit(m)} className="text-orange-400 hover:text-orange-300">
+                  <Icon name="edit" size={16} />
+                </button>
+                <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-300">
+                  <Icon name="trash" size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 text-sm mb-3">
               <p className="text-zinc-400"><span className="font-bold">MODEL:</span> {m.model}</p>
               <p className="text-zinc-400"><span className="font-bold">TYPE:</span> {m.type}</p>
             </div>
             <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
               <div>
                 <div className="text-xs text-zinc-500 font-bold">REPAIRS</div>
-                <div className="text-xl font-black text-orange-400">{getMachineRepairs(m.id)}</div>
+                <div className="text-xl font-black text-orange-400">{getCount(m.id)}</div>
               </div>
               <div className="text-right">
                 <div className="text-xs text-zinc-500 font-bold">COST</div>
-                <div className="text-xl font-black text-orange-400">${getMachineCost(m.id).toFixed(2)}</div>
+                <div className="text-xl font-black text-orange-400">${getCost(m.id).toFixed(2)}</div>
               </div>
             </div>
           </div>
         ))}
       </div>
-      {machines.length === 0 && (
+      {filtered.length === 0 && (
         <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
           <p className="text-zinc-500 font-bold">NO MACHINES FOUND</p>
         </div>
@@ -360,12 +655,14 @@ const EquipmentTab = ({ machines, onAdd, year, logs }) => {
   );
 };
 
-const LogsTab = ({ logs, machines, year, onAdd }) => (
+const LogsTab = ({ logs, machines, year, onAdd, onEdit, onDelete, onViewPhotos }) => (
   <div>
     <div className="flex justify-between mb-4">
-      <h2 className="text-2xl font-black text-orange-400">MAINTENANCE LOG - {year}</h2>
-      <button onClick={onAdd} disabled={machines.length === 0} className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-6 py-2 font-black border-2 border-orange-700">
-        ADD ENTRY
+      <h2 className="text-2xl font-black text-orange-400 flex items-center gap-2">
+        <Icon name="calendar" size={24} /> MAINTENANCE LOG - {year}
+      </h2>
+      <button onClick={onAdd} disabled={machines.length === 0} className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 text-white px-6 py-2 font-black border-2 border-orange-700 flex items-center gap-2">
+        <Icon name="plus" /> ADD ENTRY
       </button>
     </div>
     <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
@@ -378,26 +675,46 @@ const LogsTab = ({ logs, machines, year, onAdd }) => (
             <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">TECH</th>
             <th className="px-4 py-3 text-right text-orange-400 font-black text-sm">HOURS</th>
             <th className="px-4 py-3 text-right text-orange-400 font-black text-sm">COST</th>
+            <th className="px-4 py-3 text-center text-orange-400 font-black text-sm">PHOTOS</th>
+            <th className="px-4 py-3 text-center text-orange-400 font-black text-sm">ACTIONS</th>
           </tr>
         </thead>
         <tbody>
           {logs.filter(l => new Date(l.date).getFullYear() === year).sort((a,b) => new Date(b.date) - new Date(a.date)).map(l => {
             const machine = machines.find(m => m.id === l.machineId);
+            const photoUrls = l.photos ? l.photos.split(',').filter(Boolean) : [];
             return (
               <tr key={l.id} className="border-b border-zinc-700 hover:bg-zinc-750">
                 <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
                 <td className="px-4 py-3 text-zinc-300">{machine?.name || 'Unknown'}</td>
                 <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
                 <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
-                <td className="px-4 py-3 text-right text-zinc-300">{l.hours || '0'}</td>
+                <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
                 <td className="px-4 py-3 text-right text-orange-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>
+                <td className="px-4 py-3 text-center">
+                  {photoUrls.length > 0 ? (
+                    <button onClick={() => onViewPhotos(photoUrls)} className="text-orange-400 hover:text-orange-300 inline-flex items-center gap-1">
+                      <Icon name="image" size={16} /> {photoUrls.length}
+                    </button>
+                  ) : <span className="text-zinc-600">-</span>}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <div className="flex gap-2 justify-center">
+                    <button onClick={() => onEdit(l)} className="text-orange-400 hover:text-orange-300">
+                      <Icon name="edit" size={16} />
+                    </button>
+                    <button onClick={() => onDelete(l.id)} className="text-red-400 hover:text-red-300">
+                      <Icon name="trash" size={16} />
+                    </button>
+                  </div>
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
       {logs.filter(l => new Date(l.date).getFullYear() === year).length === 0 && (
-        <div className="text-center py-8 text-zinc-500 font-bold">NO MAINTENANCE RECORDS FOR {year}</div>
+        <div className="text-center py-8 text-zinc-500 font-bold">NO RECORDS FOR {year}</div>
       )}
     </div>
   </div>
@@ -411,7 +728,6 @@ const ReportsTab = ({ logs, machines, year }) => {
   useEffect(() => {
     if (!monthlyRef.current || !equipmentRef.current) return;
 
-    // Destroy old charts
     if (charts.monthly) charts.monthly.destroy();
     if (charts.equipment) charts.equipment.destroy();
 
@@ -424,31 +740,13 @@ const ReportsTab = ({ logs, machines, year }) => {
       type: 'bar',
       data: {
         labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
-        datasets: [{ 
-          label: 'Expenses ($)', 
-          data: monthlyData, 
-          backgroundColor: '#ea580c',
-          borderColor: '#c2410c',
-          borderWidth: 2,
-        }],
+        datasets: [{ label: 'Expenses ($)', data: monthlyData, backgroundColor: '#ea580c', borderColor: '#c2410c', borderWidth: 2 }],
       },
       options: { 
         responsive: true, 
         maintainAspectRatio: false,
-        scales: {
-          y: { 
-            beginAtZero: true,
-            ticks: { color: '#a1a1aa' },
-            grid: { color: '#3f3f46' },
-          },
-          x: {
-            ticks: { color: '#a1a1aa' },
-            grid: { color: '#3f3f46' },
-          },
-        },
-        plugins: {
-          legend: { labels: { color: '#a1a1aa' } },
-        },
+        scales: { y: { beginAtZero: true, ticks: { color: '#a1a1aa' }, grid: { color: '#3f3f46' } }, x: { ticks: { color: '#a1a1aa' }, grid: { color: '#3f3f46' } } },
+        plugins: { legend: { labels: { color: '#a1a1aa' } } },
       },
     });
 
@@ -463,23 +761,9 @@ const ReportsTab = ({ logs, machines, year }) => {
       type: 'pie',
       data: {
         labels: Object.keys(equipmentData),
-        datasets: [{ 
-          data: Object.values(equipmentData), 
-          backgroundColor: ['#ea580c','#f97316','#fb923c','#fdba74','#fed7aa','#ffedd5'],
-          borderColor: '#27272a',
-          borderWidth: 2,
-        }],
+        datasets: [{ data: Object.values(equipmentData), backgroundColor: ['#ea580c','#f97316','#fb923c','#fdba74','#fed7aa'], borderColor: '#27272a', borderWidth: 2 }],
       },
-      options: { 
-        responsive: true, 
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { 
-            position: 'right',
-            labels: { color: '#a1a1aa' },
-          },
-        },
-      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#a1a1aa' } } } },
     });
 
     setCharts({ monthly: monthlyChart, equipment: equipmentChart });
@@ -513,61 +797,218 @@ const SettingsModal = ({ spreadsheetId, onClose }) => (
     <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
       <div className="flex justify-between mb-6">
         <h3 className="text-2xl font-black text-orange-400">SETTINGS</h3>
-        <button onClick={onClose} className="text-white text-3xl leading-none hover:text-orange-400">×</button>
+        <button onClick={onClose} className="text-white text-3xl hover:text-orange-400">×</button>
       </div>
-      <div className="space-y-6">
-        <div className="bg-green-900 border-2 border-green-600 p-4">
-          <p className="text-green-200 font-bold mb-2">✓ Automatic Cloud Sync Enabled</p>
-          <p className="text-green-300 text-sm">Your spreadsheet ID is automatically synced across all your devices. Just sign in on any device to access your data!</p>
+      <div className="bg-green-900 border-2 border-green-600 p-4 mb-6">
+        <p className="text-green-200 font-bold">✓ Auto-Sync Enabled</p>
+        <p className="text-green-300 text-sm">Your data syncs automatically across all devices</p>
+      </div>
+      <div>
+        <label className="block text-xs font-black text-orange-400 mb-2">SPREADSHEET ID</label>
+        <div className="bg-zinc-900 border-2 border-zinc-700 p-3 mb-2">
+          <code className="text-white text-sm break-all">{spreadsheetId}</code>
         </div>
-        <div>
-          <label className="block text-xs font-black text-orange-400 mb-2">SPREADSHEET ID</label>
-          <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
-            <code className="text-white text-sm break-all">{spreadsheetId}</code>
-          </div>
-          <button onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, '_blank')} className="mt-2 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 text-sm font-bold border-2 border-zinc-600">
-            OPEN IN GOOGLE SHEETS
+        <button onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, '_blank')} className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 font-bold border-2 border-zinc-600">
+          OPEN IN GOOGLE SHEETS
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const MachineFormModal = ({ machine, onClose, onSave }) => {
+  const [form, setForm] = useState(machine || { name: '', model: '', serial: '', type: 'Washer' });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-orange-400">{machine ? 'EDIT' : 'ADD'} MACHINE</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
           </button>
         </div>
-        <div className="border-t-2 border-zinc-700 pt-4">
-          <h4 className="text-lg font-black text-orange-400 mb-2">HOW IT WORKS</h4>
-          <ul className="text-zinc-300 text-sm space-y-2">
-            <li>• Your spreadsheet ID is stored securely in your Google Drive</li>
-            <li>• Sign in on any device to automatically access your data</li>
-            <li>• No manual syncing or QR codes needed</li>
-            <li>• Works on laptop, phone, tablet - anywhere!</li>
-          </ul>
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">MACHINE NAME</label>
+            <input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" placeholder="e.g., Washer #1" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">TYPE</label>
+            <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500">
+              <option>Washer</option>
+              <option>Dryer</option>
+              <option>Folding Table</option>
+              <option>Vending Machine</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">MODEL</label>
+            <input type="text" required value={form.model} onChange={e => setForm({...form, model: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" placeholder="e.g., Speed Queen" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">SERIAL NUMBER</label>
+            <input type="text" required value={form.serial} onChange={e => setForm({...form, serial: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" placeholder="e.g., SQ123" />
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
+            <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-500 text-white px-4 py-3 font-black border-2 border-orange-700 flex items-center justify-center gap-2">
+              <Icon name="save" size={16} /> SAVE
+            </button>
+          </div>
+        </form>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
-const AddMachineModal = ({ onClose }) => (
-  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-      <h3 className="text-2xl font-black text-orange-400 mb-4">ADD MACHINE</h3>
-      <p className="text-zinc-400 mb-4">Full add/edit functionality will be added after testing the core features (automatic sync, charts, etc.)</p>
-      <p className="text-zinc-300 text-sm mb-6">For now, you can add machines directly in Google Sheets, and they'll appear here automatically when you refresh.</p>
-      <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-3 font-black border-2 border-zinc-600">
-        CLOSE
-      </button>
-    </div>
-  </div>
-);
+const LogFormModal = ({ log, machines, onClose, onSave }) => {
+  const [form, setForm] = useState(log || {
+    machineId: machines[0]?.id || '',
+    date: new Date().toISOString().split('T')[0],
+    issue: '',
+    tech: '',
+    cost: '',
+    hours: '0',
+    notes: '',
+  });
+  const [photoFiles, setPhotoFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
+  const fileRef = useRef(null);
 
-const AddLogModal = ({ machines, onClose }) => (
-  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-      <h3 className="text-2xl font-black text-orange-400 mb-4">ADD LOG ENTRY</h3>
-      <p className="text-zinc-400 mb-4">Full add/edit functionality (including labor hours and photo uploads) will be added after testing.</p>
-      <p className="text-zinc-300 text-sm mb-6">For now, you can add maintenance logs directly in Google Sheets, and they'll appear here automatically when you refresh.</p>
-      <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-3 font-black border-2 border-zinc-600">
-        CLOSE
-      </button>
+  const handlePhotoSelect = (e) => {
+    const files = Array.from(e.target.files);
+    setPhotoFiles([...photoFiles, ...files]);
+    
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => setPreviews(prev => [...prev, reader.result]);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto = (index) => {
+    setPhotoFiles(photoFiles.filter((_, i) => i !== index));
+    setPreviews(previews.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave(form, photoFiles);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6 my-8">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-orange-400">{log ? 'EDIT' : 'ADD'} LOG ENTRY</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-orange-400 mb-2">MACHINE</label>
+              <select required value={form.machineId} onChange={e => setForm({...form, machineId: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500">
+                {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-orange-400 mb-2">DATE</label>
+              <input type="date" required value={form.date} onChange={e => setForm({...form, date: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">ISSUE / REPAIR</label>
+            <textarea required value={form.issue} onChange={e => setForm({...form, issue: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-20" placeholder="Describe problem..." />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">NOTES (Part Numbers, Details)</label>
+            <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-20" placeholder="P/N, additional details..." />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-black text-orange-400 mb-2">TECHNICIAN</label>
+              <input type="text" required value={form.tech} onChange={e => setForm({...form, tech: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-orange-400 mb-2">LABOR HOURS</label>
+              <input type="number" step="0.5" required value={form.hours} onChange={e => setForm({...form, hours: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-orange-400 mb-2">COST</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-400 font-bold">$</span>
+                <input type="number" step="0.01" required value={form.cost} onChange={e => setForm({...form, cost: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold outline-none focus:border-orange-500" />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">PHOTOS</label>
+            <input ref={fileRef} type="file" accept="image/*" multiple onChange={handlePhotoSelect} className="hidden" />
+            <button type="button" onClick={() => fileRef.current?.click()} className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 font-bold border-2 border-zinc-600 flex items-center gap-2">
+              <Icon name="image" /> ADD PHOTOS
+            </button>
+            {previews.length > 0 && (
+              <div className="mt-3 grid grid-cols-4 gap-2">
+                {previews.map((src, i) => (
+                  <div key={i} className="relative group">
+                    <img src={src} className="w-full h-20 object-cover border-2 border-zinc-700" />
+                    <button type="button" onClick={() => removePhoto(i)} className="absolute top-1 right-1 bg-red-600 text-white p-1 opacity-0 group-hover:opacity-100">
+                      <Icon name="x" size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
+            <button type="submit" className="flex-1 bg-orange-600 hover:bg-orange-500 text-white px-4 py-3 font-black border-2 border-orange-700 flex items-center justify-center gap-2">
+              <Icon name="save" size={16} /> SAVE
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
-  </div>
-);
+  );
+};
+
+const PhotoViewer = ({ photos, onClose }) => {
+  const [index, setIndex] = useState(0);
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50">
+      <div className="max-w-4xl w-full">
+        <div className="flex justify-between items-center mb-4 text-white">
+          <span className="font-bold">PHOTO {index + 1} OF {photos.length}</span>
+          <button onClick={onClose} className="hover:text-orange-400">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        <div className="bg-zinc-900 border-4 border-orange-600 p-4">
+          <img src={photos[index]} className="w-full h-auto max-h-[70vh] object-contain" />
+        </div>
+        {photos.length > 1 && (
+          <div className="flex justify-center gap-4 mt-4">
+            <button onClick={() => setIndex(Math.max(0, index - 1))} disabled={index === 0} className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 text-white px-6 py-2 font-black border-2 border-orange-700">
+              ← PREVIOUS
+            </button>
+            <button onClick={() => setIndex(Math.min(photos.length - 1, index + 1))} disabled={index === photos.length - 1} className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 text-white px-6 py-2 font-black border-2 border-orange-700">
+              NEXT →
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
