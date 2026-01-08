@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Laundromat Maintenance Log - Enhanced</title>
+  <title>Laundromat Maintenance Log</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -24,14 +24,8 @@ const DISCOVERY_DOCS = [
   'https://sheets.googleapis.com/$discovery/rest?version=v4',
   'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
 ];
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
-
-// Icons
-const Icon = ({ d, size = 24 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d={d} />
-  </svg>
-);
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
+const CONFIG_FILE_NAME = 'laundromat_config.json';
 
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -46,6 +40,7 @@ const App = () => {
   const [showAddLog, setShowAddLog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('');
 
   useEffect(() => {
     const script = document.createElement('script');
@@ -59,10 +54,10 @@ const App = () => {
       window.tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        callback: (response) => {
+        callback: async (response) => {
           if (!response.error) {
             setIsSignedIn(true);
-            loadOrCreateSheet();
+            await loadFromCloud();
           }
         },
       });
@@ -78,17 +73,96 @@ const App = () => {
     setIsInitializing(false);
   };
 
-  const loadOrCreateSheet = async () => {
-    const id = localStorage.getItem('laundromat_spreadsheet_id');
-    if (id) {
-      setSpreadsheetId(id);
-      await loadData(id);
-    } else {
-      await createSheet();
+  // Load spreadsheet ID from Google Drive appDataFolder (automatic cloud sync)
+  const loadFromCloud = async () => {
+    setSyncStatus('Checking for existing data in cloud...');
+    try {
+      // Search for config file in appDataFolder
+      const response = await window.gapi.client.drive.files.list({
+        spaces: 'appDataFolder',
+        q: `name='${CONFIG_FILE_NAME}'`,
+        fields: 'files(id)',
+      });
+
+      if (response.result.files && response.result.files.length > 0) {
+        // Config file exists - download it
+        const fileId = response.result.files[0].id;
+        const configResponse = await window.gapi.client.drive.files.get({
+          fileId: fileId,
+          alt: 'media',
+        });
+        
+        const config = JSON.parse(configResponse.body);
+        setSyncStatus('Found existing spreadsheet in cloud!');
+        setSpreadsheetId(config.spreadsheetId);
+        localStorage.setItem('laundromat_spreadsheet_id', config.spreadsheetId);
+        await loadData(config.spreadsheetId);
+      } else {
+        // No config file - create new spreadsheet
+        setSyncStatus('Creating new spreadsheet...');
+        await createSheetAndSaveToCloud();
+      }
+    } catch (err) {
+      console.error('Cloud sync error:', err);
+      setError('Cloud sync failed: ' + err.message);
+      // Fallback to local storage
+      const localId = localStorage.getItem('laundromat_spreadsheet_id');
+      if (localId) {
+        setSpreadsheetId(localId);
+        await loadData(localId);
+      }
+    }
+    setSyncStatus('');
+  };
+
+  // Save spreadsheet ID to Google Drive appDataFolder
+  const saveToCloud = async (sheetId) => {
+    try {
+      const config = { spreadsheetId: sheetId, lastUpdated: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(config)], { type: 'application/json' });
+      
+      // Check if config file already exists
+      const searchResponse = await window.gapi.client.drive.files.list({
+        spaces: 'appDataFolder',
+        q: `name='${CONFIG_FILE_NAME}'`,
+        fields: 'files(id)',
+      });
+
+      if (searchResponse.result.files && searchResponse.result.files.length > 0) {
+        // Update existing file
+        const fileId = searchResponse.result.files[0].id;
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify({ name: CONFIG_FILE_NAME })], { type: 'application/json' }));
+        form.append('file', blob);
+
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+          method: 'PATCH',
+          headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
+          body: form,
+        });
+      } else {
+        // Create new file
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify({
+          name: CONFIG_FILE_NAME,
+          parents: ['appDataFolder'],
+        })], { type: 'application/json' }));
+        form.append('file', blob);
+
+        await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+          method: 'POST',
+          headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
+          body: form,
+        });
+      }
+      
+      console.log('✓ Spreadsheet ID saved to cloud');
+    } catch (err) {
+      console.error('Failed to save to cloud:', err);
     }
   };
 
-  const createSheet = async () => {
+  const createSheetAndSaveToCloud = async () => {
     const response = await window.gapi.client.sheets.spreadsheets.create({
       resource: {
         properties: { title: 'Laundromat Maintenance Log' },
@@ -98,9 +172,13 @@ const App = () => {
         ],
       },
     });
+    
     const id = response.result.spreadsheetId;
-    localStorage.setItem('laundromat_spreadsheet_id', id);
     setSpreadsheetId(id);
+    localStorage.setItem('laundromat_spreadsheet_id', id);
+    
+    // Save to cloud for automatic sync
+    await saveToCloud(id);
     
     await window.gapi.client.sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: id,
@@ -112,19 +190,35 @@ const App = () => {
         ],
       },
     });
+    
+    setSyncStatus('✓ Spreadsheet created and synced to cloud!');
+    setTimeout(() => setSyncStatus(''), 3000);
   };
 
   const loadData = async (id) => {
-    const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
-      spreadsheetId: id,
-      ranges: ['Machines!A2:E', 'Logs!A2:H'],
-    });
-    
-    const machineData = response.result.valueRanges[0].values || [];
-    const logData = response.result.valueRanges[1].values || [];
-    
-    setMachines(machineData.map(r => ({ id: r[0], name: r[1], model: r[2], serial: r[3], type: r[4] })));
-    setLogs(logData.map(r => ({ id: r[0], machineId: r[1], date: r[2], issue: r[3], tech: r[4], cost: r[5], hours: r[6], photos: r[7] })));
+    setLoading(true);
+    try {
+      const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
+        spreadsheetId: id,
+        ranges: ['Machines!A2:E', 'Logs!A2:H'],
+      });
+      
+      const machineData = response.result.valueRanges[0].values || [];
+      const logData = response.result.valueRanges[1].values || [];
+      
+      setMachines(machineData.map(r => ({ id: r[0], name: r[1], model: r[2], serial: r[3], type: r[4] })));
+      setLogs(logData.map(r => ({ id: r[0], machineId: r[1], date: r[2], issue: r[3], tech: r[4], cost: r[5], hours: r[6], photos: r[7] })));
+    } catch (err) {
+      setError('Failed to load data: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshData = async () => {
+    if (spreadsheetId) {
+      await loadData(spreadsheetId);
+    }
   };
 
   if (isInitializing) {
@@ -135,8 +229,15 @@ const App = () => {
     return (
       <div className="min-h-screen bg-zinc-900 flex items-center justify-center p-4">
         <div className="bg-zinc-800 border-4 border-orange-600 p-8 max-w-md">
-          <h1 className="text-4xl font-black text-orange-400 mb-6">LAUNDROMAT</h1>
-          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 text-white px-6 py-4 font-black">
+          <h1 className="text-4xl font-black text-orange-400 mb-2" style={{fontFamily:"Impact"}}>LAUNDROMAT</h1>
+          <p className="text-zinc-400 mb-6 font-bold">EQUIPMENT MAINTENANCE SYSTEM</p>
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-6">
+            <p className="text-zinc-300 text-sm mb-2">✨ <strong>Automatic Cloud Sync</strong></p>
+            <p className="text-zinc-400 text-xs">
+              Sign in once, access your data from any device. Your spreadsheet ID is automatically synced across all your devices via Google Drive.
+            </p>
+          </div>
+          <button onClick={() => window.tokenClient.requestAccessToken()} className="w-full bg-orange-600 hover:bg-orange-500 text-white px-6 py-4 font-black transition-colors border-2 border-orange-700">
             SIGN IN WITH GOOGLE
           </button>
         </div>
@@ -145,110 +246,174 @@ const App = () => {
   }
 
   const yearTotal = logs.filter(l => new Date(l.date).getFullYear() === year).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+  const years = [...new Set(logs.map(l => new Date(l.date).getFullYear()))].sort((a,b) => b-a);
+  if (years.length === 0) years.push(year);
 
   return (
     <div className="min-h-screen bg-zinc-900 text-white">
       <header className="bg-gradient-to-r from-orange-600 to-orange-500 border-b-4 border-orange-700 p-6">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div>
-            <h1 className="text-5xl font-black text-white">LAUNDROMAT</h1>
-            <p className="text-orange-100 text-sm font-bold">MAINTENANCE SYSTEM</p>
-          </div>
-          <div className="flex gap-4 items-center">
-            <button onClick={() => setShowSettings(true)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
-              SETTINGS
-            </button>
-            <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
-              {[...new Set(logs.map(l => new Date(l.date).getFullYear()))].sort((a,b) => b-a).map(y => <option key={y}>{y}</option>)}
-            </select>
-            <div className="bg-zinc-800 border-2 border-orange-500 px-6 py-3">
-              <div className="text-xs text-orange-400 font-bold">ANNUAL TOTAL</div>
-              <div className="text-2xl font-black text-white">${yearTotal.toFixed(2)}</div>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-5xl font-black text-white" style={{fontFamily:"Impact"}}>LAUNDROMAT</h1>
+              <p className="text-orange-100 text-sm font-bold tracking-wide">MAINTENANCE SYSTEM</p>
+            </div>
+            <div className="flex gap-4 items-center flex-wrap">
+              {syncStatus && (
+                <div className="bg-zinc-800 border-2 border-orange-500 px-4 py-2 text-orange-400 text-sm font-bold">
+                  {syncStatus}
+                </div>
+              )}
+              <button onClick={refreshData} disabled={loading} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700">
+                {loading ? 'SYNCING...' : 'REFRESH'}
+              </button>
+              <button onClick={() => setShowSettings(true)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold hover:bg-zinc-700">
+                SETTINGS
+              </button>
+              <select value={year} onChange={e => setYear(+e.target.value)} className="bg-zinc-800 border-2 border-orange-500 text-orange-400 px-4 py-2 font-bold">
+                {years.map(y => <option key={y}>{y}</option>)}
+              </select>
+              <div className="bg-zinc-800 border-2 border-orange-500 px-6 py-3">
+                <div className="text-xs text-orange-400 font-bold tracking-wider">ANNUAL TOTAL</div>
+                <div className="text-2xl font-black text-white">${yearTotal.toFixed(2)}</div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="max-w-7xl mx-auto flex gap-2 mt-4">
-          {['equipment', 'logs', 'reports'].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2 font-black border-2 ${activeTab === tab ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-orange-400'}`}>
-              {tab.toUpperCase()}
-            </button>
-          ))}
+          <div className="flex gap-2 mt-6 border-t-2 border-orange-400 pt-4">
+            {['equipment', 'logs', 'reports'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-6 py-2 font-black border-2 transition-colors ${activeTab === tab ? 'bg-orange-600 text-white border-orange-700' : 'bg-zinc-800 text-orange-400 border-zinc-700 hover:bg-zinc-700'}`}>
+                {tab.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
+      {error && (
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="bg-red-900 border-2 border-red-600 px-4 py-3 text-white font-bold">
+            ERROR: {error}
+            <button onClick={() => setError(null)} className="float-right">×</button>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto p-6">
-        {activeTab === 'equipment' && <EquipmentTab machines={machines} onAdd={() => setShowAddMachine(true)} />}
+        {activeTab === 'equipment' && <EquipmentTab machines={machines} onAdd={() => setShowAddMachine(true)} year={year} logs={logs} />}
         {activeTab === 'logs' && <LogsTab logs={logs} machines={machines} year={year} onAdd={() => setShowAddLog(true)} />}
         {activeTab === 'reports' && <ReportsTab logs={logs} machines={machines} year={year} />}
       </main>
 
       {showSettings && <SettingsModal spreadsheetId={spreadsheetId} onClose={() => setShowSettings(false)} />}
-      {showAddMachine && <AddMachineModal onClose={() => setShowAddMachine(false)} onSave={() => {}} />}
-      {showAddLog && <AddLogModal machines={machines} onClose={() => setShowAddLog(false)} onSave={() => {}} />}
+      {showAddMachine && <AddMachineModal onClose={() => setShowAddMachine(false)} />}
+      {showAddLog && <AddLogModal machines={machines} onClose={() => setShowAddLog(false)} />}
     </div>
   );
 };
 
-const EquipmentTab = ({ machines, onAdd }) => (
-  <div>
-    <div className="flex justify-between mb-4">
-      <h2 className="text-2xl font-black text-orange-400">EQUIPMENT ROSTER</h2>
-      <button onClick={onAdd} className="bg-orange-600 text-white px-6 py-2 font-black">ADD MACHINE</button>
-    </div>
-    <div className="grid grid-cols-3 gap-4">
-      {machines.map(m => (
-        <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4">
-          <h3 className="text-lg font-black">{m.name}</h3>
-          <p className="text-sm text-zinc-400">Model: {m.model}</p>
-          <p className="text-sm text-zinc-400">SN: {m.serial}</p>
+const EquipmentTab = ({ machines, onAdd, year, logs }) => {
+  const getMachineCost = (machineId) => {
+    return logs.filter(l => l.machineId === machineId && new Date(l.date).getFullYear() === year)
+      .reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+  };
+
+  const getMachineRepairs = (machineId) => {
+    return logs.filter(l => l.machineId === machineId && new Date(l.date).getFullYear() === year).length;
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between mb-4">
+        <h2 className="text-2xl font-black text-orange-400">EQUIPMENT ROSTER</h2>
+        <button onClick={onAdd} className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 font-black border-2 border-orange-700">
+          ADD MACHINE
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {machines.map(m => (
+          <div key={m.id} className="bg-zinc-800 border-2 border-zinc-700 p-4 hover:border-orange-500 transition-all">
+            <h3 className="text-lg font-black text-white">{m.name}</h3>
+            <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
+            <div className="space-y-1 text-sm mt-2 mb-3">
+              <p className="text-zinc-400"><span className="font-bold">MODEL:</span> {m.model}</p>
+              <p className="text-zinc-400"><span className="font-bold">TYPE:</span> {m.type}</p>
+            </div>
+            <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
+              <div>
+                <div className="text-xs text-zinc-500 font-bold">REPAIRS</div>
+                <div className="text-xl font-black text-orange-400">{getMachineRepairs(m.id)}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-zinc-500 font-bold">COST</div>
+                <div className="text-xl font-black text-orange-400">${getMachineCost(m.id).toFixed(2)}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {machines.length === 0 && (
+        <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
+          <p className="text-zinc-500 font-bold">NO MACHINES FOUND</p>
         </div>
-      ))}
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const LogsTab = ({ logs, machines, year, onAdd }) => (
   <div>
     <div className="flex justify-between mb-4">
-      <h2 className="text-2xl font-black text-orange-400">MAINTENANCE LOG</h2>
-      <button onClick={onAdd} className="bg-orange-600 text-white px-6 py-2 font-black">ADD ENTRY</button>
+      <h2 className="text-2xl font-black text-orange-400">MAINTENANCE LOG - {year}</h2>
+      <button onClick={onAdd} disabled={machines.length === 0} className="bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-6 py-2 font-black border-2 border-orange-700">
+        ADD ENTRY
+      </button>
     </div>
-    <table className="w-full bg-zinc-800 border-2 border-zinc-700">
-      <thead className="bg-zinc-900">
-        <tr>
-          <th className="px-4 py-2 text-left text-orange-400 font-black">DATE</th>
-          <th className="px-4 py-2 text-left text-orange-400 font-black">MACHINE</th>
-          <th className="px-4 py-2 text-left text-orange-400 font-black">ISSUE</th>
-          <th className="px-4 py-2 text-left text-orange-400 font-black">TECH</th>
-          <th className="px-4 py-2 text-right text-orange-400 font-black">HOURS</th>
-          <th className="px-4 py-2 text-right text-orange-400 font-black">COST</th>
-        </tr>
-      </thead>
-      <tbody>
-        {logs.filter(l => new Date(l.date).getFullYear() === year).map(l => {
-          const machine = machines.find(m => m.id === l.machineId);
-          return (
-            <tr key={l.id} className="border-t border-zinc-700">
-              <td className="px-4 py-2">{new Date(l.date).toLocaleDateString()}</td>
-              <td className="px-4 py-2">{machine?.name || 'Unknown'}</td>
-              <td className="px-4 py-2">{l.issue}</td>
-              <td className="px-4 py-2">{l.tech}</td>
-              <td className="px-4 py-2 text-right">{l.hours}</td>
-              <td className="px-4 py-2 text-right text-orange-400 font-bold">${parseFloat(l.cost).toFixed(2)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
+      <table className="w-full">
+        <thead className="bg-zinc-900 border-b-2 border-orange-600">
+          <tr>
+            <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">DATE</th>
+            <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">MACHINE</th>
+            <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">ISSUE</th>
+            <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">TECH</th>
+            <th className="px-4 py-3 text-right text-orange-400 font-black text-sm">HOURS</th>
+            <th className="px-4 py-3 text-right text-orange-400 font-black text-sm">COST</th>
+          </tr>
+        </thead>
+        <tbody>
+          {logs.filter(l => new Date(l.date).getFullYear() === year).sort((a,b) => new Date(b.date) - new Date(a.date)).map(l => {
+            const machine = machines.find(m => m.id === l.machineId);
+            return (
+              <tr key={l.id} className="border-b border-zinc-700 hover:bg-zinc-750">
+                <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
+                <td className="px-4 py-3 text-zinc-300">{machine?.name || 'Unknown'}</td>
+                <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
+                <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
+                <td className="px-4 py-3 text-right text-zinc-300">{l.hours || '0'}</td>
+                <td className="px-4 py-3 text-right text-orange-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {logs.filter(l => new Date(l.date).getFullYear() === year).length === 0 && (
+        <div className="text-center py-8 text-zinc-500 font-bold">NO MAINTENANCE RECORDS FOR {year}</div>
+      )}
+    </div>
   </div>
 );
 
 const ReportsTab = ({ logs, machines, year }) => {
   const monthlyRef = useRef(null);
   const equipmentRef = useRef(null);
+  const [charts, setCharts] = useState({ monthly: null, equipment: null });
 
   useEffect(() => {
     if (!monthlyRef.current || !equipmentRef.current) return;
+
+    // Destroy old charts
+    if (charts.monthly) charts.monthly.destroy();
+    if (charts.equipment) charts.equipment.destroy();
 
     const monthlyData = Array(12).fill(0);
     logs.filter(l => new Date(l.date).getFullYear() === year).forEach(l => {
@@ -259,9 +424,32 @@ const ReportsTab = ({ logs, machines, year }) => {
       type: 'bar',
       data: {
         labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
-        datasets: [{ label: 'Expenses', data: monthlyData, backgroundColor: '#ea580c' }],
+        datasets: [{ 
+          label: 'Expenses ($)', 
+          data: monthlyData, 
+          backgroundColor: '#ea580c',
+          borderColor: '#c2410c',
+          borderWidth: 2,
+        }],
       },
-      options: { responsive: true, maintainAspectRatio: false },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false,
+        scales: {
+          y: { 
+            beginAtZero: true,
+            ticks: { color: '#a1a1aa' },
+            grid: { color: '#3f3f46' },
+          },
+          x: {
+            ticks: { color: '#a1a1aa' },
+            grid: { color: '#3f3f46' },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: '#a1a1aa' } },
+        },
+      },
     });
 
     const equipmentData = {};
@@ -275,27 +463,43 @@ const ReportsTab = ({ logs, machines, year }) => {
       type: 'pie',
       data: {
         labels: Object.keys(equipmentData),
-        datasets: [{ data: Object.values(equipmentData), backgroundColor: ['#ea580c','#f97316','#fb923c','#fdba74'] }],
+        datasets: [{ 
+          data: Object.values(equipmentData), 
+          backgroundColor: ['#ea580c','#f97316','#fb923c','#fdba74','#fed7aa','#ffedd5'],
+          borderColor: '#27272a',
+          borderWidth: 2,
+        }],
       },
-      options: { responsive: true, maintainAspectRatio: false },
+      options: { 
+        responsive: true, 
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { 
+            position: 'right',
+            labels: { color: '#a1a1aa' },
+          },
+        },
+      },
     });
+
+    setCharts({ monthly: monthlyChart, equipment: equipmentChart });
 
     return () => {
       monthlyChart.destroy();
       equipmentChart.destroy();
     };
-  }, [logs, year]);
+  }, [logs, machines, year]);
 
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-black text-orange-400 mb-4">MONTHLY EXPENSES</h2>
+        <h2 className="text-2xl font-black text-orange-400 mb-4">MONTHLY EXPENSES - {year}</h2>
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6" style={{height:'400px'}}>
           <canvas ref={monthlyRef}></canvas>
         </div>
       </div>
       <div>
-        <h2 className="text-2xl font-black text-orange-400 mb-4">EXPENSES BY EQUIPMENT</h2>
+        <h2 className="text-2xl font-black text-orange-400 mb-4">EXPENSES BY EQUIPMENT - {year}</h2>
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6" style={{height:'400px'}}>
           <canvas ref={equipmentRef}></canvas>
         </div>
@@ -304,66 +508,63 @@ const ReportsTab = ({ logs, machines, year }) => {
   );
 };
 
-const SettingsModal = ({ spreadsheetId, onClose }) => {
-  const [newId, setNewId] = useState('');
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
-        <div className="flex justify-between mb-6">
-          <h3 className="text-2xl font-black text-orange-400">SETTINGS</h3>
-          <button onClick={onClose} className="text-white">×</button>
+const SettingsModal = ({ spreadsheetId, onClose }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+    <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
+      <div className="flex justify-between mb-6">
+        <h3 className="text-2xl font-black text-orange-400">SETTINGS</h3>
+        <button onClick={onClose} className="text-white text-3xl leading-none hover:text-orange-400">×</button>
+      </div>
+      <div className="space-y-6">
+        <div className="bg-green-900 border-2 border-green-600 p-4">
+          <p className="text-green-200 font-bold mb-2">✓ Automatic Cloud Sync Enabled</p>
+          <p className="text-green-300 text-sm">Your spreadsheet ID is automatically synced across all your devices. Just sign in on any device to access your data!</p>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-black text-orange-400 mb-2">CURRENT SPREADSHEET ID</label>
-            <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
-              <code className="text-white text-sm break-all">{spreadsheetId}</code>
-            </div>
-            <button onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, '_blank')} className="mt-2 bg-zinc-700 text-white px-4 py-2 text-sm font-bold">
-              OPEN IN GOOGLE SHEETS
-            </button>
+        <div>
+          <label className="block text-xs font-black text-orange-400 mb-2">SPREADSHEET ID</label>
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+            <code className="text-white text-sm break-all">{spreadsheetId}</code>
           </div>
-          <div className="border-t-2 border-zinc-700 pt-4">
-            <h4 className="text-lg font-black text-orange-400 mb-2">SYNC WITH ANOTHER DEVICE</h4>
-            <p className="text-zinc-400 text-sm mb-4">Copy the ID above and paste it on your other device to sync data.</p>
-            <input
-              type="text"
-              value={newId}
-              onChange={e => setNewId(e.target.value)}
-              placeholder="Paste spreadsheet ID..."
-              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 mb-4"
-            />
-            <button onClick={() => {
-              if (newId.trim()) {
-                localStorage.setItem('laundromat_spreadsheet_id', newId.trim());
-                window.location.reload();
-              }
-            }} className="bg-orange-600 text-white px-6 py-2 font-black">
-              SYNC TO THIS SPREADSHEET
-            </button>
-          </div>
+          <button onClick={() => window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`, '_blank')} className="mt-2 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 text-sm font-bold border-2 border-zinc-600">
+            OPEN IN GOOGLE SHEETS
+          </button>
+        </div>
+        <div className="border-t-2 border-zinc-700 pt-4">
+          <h4 className="text-lg font-black text-orange-400 mb-2">HOW IT WORKS</h4>
+          <ul className="text-zinc-300 text-sm space-y-2">
+            <li>• Your spreadsheet ID is stored securely in your Google Drive</li>
+            <li>• Sign in on any device to automatically access your data</li>
+            <li>• No manual syncing or QR codes needed</li>
+            <li>• Works on laptop, phone, tablet - anywhere!</li>
+          </ul>
         </div>
       </div>
-    </div>
-  );
-};
-
-const AddMachineModal = ({ onClose, onSave }) => (
-  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-      <h3 className="text-2xl font-black text-orange-400 mb-6">ADD MACHINE</h3>
-      <p className="text-zinc-400">Feature coming soon - full implementation available in complete version</p>
-      <button onClick={onClose} className="mt-4 bg-zinc-700 text-white px-6 py-2 font-black">CLOSE</button>
     </div>
   </div>
 );
 
-const AddLogModal = ({ machines, onClose, onSave }) => (
+const AddMachineModal = ({ onClose }) => (
   <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
     <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
-      <h3 className="text-2xl font-black text-orange-400 mb-6">ADD LOG ENTRY</h3>
-      <p className="text-zinc-400">Feature coming soon - includes labor hours and photo uploads in complete version</p>
-      <button onClick={onClose} className="mt-4 bg-zinc-700 text-white px-6 py-2 font-black">CLOSE</button>
+      <h3 className="text-2xl font-black text-orange-400 mb-4">ADD MACHINE</h3>
+      <p className="text-zinc-400 mb-4">Full add/edit functionality will be added after testing the core features (automatic sync, charts, etc.)</p>
+      <p className="text-zinc-300 text-sm mb-6">For now, you can add machines directly in Google Sheets, and they'll appear here automatically when you refresh.</p>
+      <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-3 font-black border-2 border-zinc-600">
+        CLOSE
+      </button>
+    </div>
+  </div>
+);
+
+const AddLogModal = ({ machines, onClose }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+    <div className="bg-zinc-800 border-4 border-orange-600 max-w-md w-full p-6">
+      <h3 className="text-2xl font-black text-orange-400 mb-4">ADD LOG ENTRY</h3>
+      <p className="text-zinc-400 mb-4">Full add/edit functionality (including labor hours and photo uploads) will be added after testing.</p>
+      <p className="text-zinc-300 text-sm mb-6">For now, you can add maintenance logs directly in Google Sheets, and they'll appear here automatically when you refresh.</p>
+      <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-6 py-3 font-black border-2 border-zinc-600">
+        CLOSE
+      </button>
     </div>
   </div>
 );
