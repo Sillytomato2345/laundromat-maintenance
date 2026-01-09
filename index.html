@@ -95,6 +95,112 @@ const exportToCSV = (data, filename) => {
   URL.revokeObjectURL(url);
 };
 
+// PDF Receipt Parser
+const parseReceiptText = (text) => {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const items = [];
+  
+  // Common patterns for SKU, quantity, price
+  const skuPattern = /\b[A-Z0-9-]{6,20}\b/;
+  const pricePattern = /\$\s*(\d+\.?\d*)/;
+  const qtyPattern = /^(\d+)\s/;
+  
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    
+    // Look for SKU pattern
+    const skuMatch = line.match(skuPattern);
+    if (skuMatch) {
+      const sku = skuMatch[0];
+      let name = '';
+      let qty = 1;
+      let price = 0;
+      
+      // Check if quantity is at start of line
+      const qtyMatch = line.match(qtyPattern);
+      if (qtyMatch) {
+        qty = parseInt(qtyMatch[1]);
+      }
+      
+      // Name is usually after SKU, might span multiple words
+      const skuIndex = line.indexOf(sku);
+      const afterSKU = line.substring(skuIndex + sku.length).trim();
+      
+      // Check if price is on same line
+      const priceMatch = line.match(pricePattern);
+      if (priceMatch) {
+        price = parseFloat(priceMatch[1]);
+        // Name is between SKU and price
+        name = afterSKU.replace(pricePattern, '').trim();
+      } else {
+        // Name might be on same line or next line
+        name = afterSKU;
+        // Check next line for price
+        if (i + 1 < lines.length) {
+          const nextLinePrice = lines[i + 1].match(pricePattern);
+          if (nextLinePrice) {
+            price = parseFloat(nextLinePrice[1]);
+            i++; // Skip next line
+          }
+        }
+      }
+      
+      // Check if there's a line starting with "SKU :" pattern
+      if (i + 1 < lines.length && lines[i + 1].toLowerCase().startsWith('sku')) {
+        const actualSKU = lines[i + 1].split(':')[1]?.trim();
+        if (actualSKU) {
+          // Previous line was the name
+          name = line;
+          i++; // Move to SKU line
+          // Check next line for qty and price
+          if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1];
+            const qtyMatch2 = nextLine.match(qtyPattern);
+            const priceMatch2 = nextLine.match(pricePattern);
+            if (qtyMatch2) qty = parseInt(qtyMatch2[1]);
+            if (priceMatch2) price = parseFloat(priceMatch2[1]);
+            i++;
+          }
+        }
+      }
+      
+      if (name && price > 0) {
+        // Clean up name
+        name = name.replace(/\s+/g, ' ').replace(/^\d+\s/, '').trim();
+        items.push({ sku, name, qty, price });
+      }
+    }
+    i++;
+  }
+  
+  return items;
+};
+
+// Fuzzy match part names
+const fuzzyMatch = (search, target) => {
+  search = search.toLowerCase().replace(/[^a-z0-9]/g, '');
+  target = target.toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  // Exact match
+  if (search === target) return 100;
+  
+  // Contains match
+  if (target.includes(search)) return 80;
+  if (search.includes(target)) return 80;
+  
+  // SKU match
+  const searchTokens = search.split(/[-\s]+/);
+  const targetTokens = target.split(/[-\s]+/);
+  let matches = 0;
+  searchTokens.forEach(st => {
+    if (targetTokens.some(tt => tt.includes(st) || st.includes(tt))) {
+      matches++;
+    }
+  });
+  return (matches / Math.max(searchTokens.length, targetTokens.length)) * 60;
+};
+
 // Main App
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -900,6 +1006,71 @@ const App = () => {
     }
   };
 
+  // Import Parts from Receipt (PDF)
+  const importPartsFromReceipt = async (items) => {
+    setSyncStatus('Importing parts...');
+    try {
+      const newParts = [];
+      const updatedParts = [];
+      
+      for (const item of items) {
+        if (item.action === 'skip') continue;
+        
+        if (item.action === 'new' || !item.matchedPart) {
+          // Create new part
+          const newPart = {
+            id: Date.now().toString() + Math.random(),
+            name: item.name,
+            sku: item.sku,
+            stock: item.qty.toString(),
+            minStock: Math.max(1, Math.floor(item.qty / 2)).toString(),
+            cost: item.price.toString(),
+            vendorId: vendors[0]?.id || '',
+            locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation,
+            notes: 'Imported from receipt'
+          };
+          
+          await window.gapi.client.sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Parts Inventory!A:I',
+            valueInputOption: 'RAW',
+            resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId, newPart.locationId, newPart.notes]] },
+          });
+          
+          newParts.push(newPart);
+        } else {
+          // Update existing part
+          const partIndex = parts.findIndex(p => p.id === item.matchedPart.id);
+          if (partIndex >= 0) {
+            const currentStock = parseInt(parts[partIndex].stock || 0);
+            const newStock = (currentStock + item.qty).toString();
+            const newCost = item.price.toString(); // Update to new price
+            
+            await window.gapi.client.sheets.spreadsheets.values.update({
+              spreadsheetId,
+              range: `Parts Inventory!D${partIndex + 2}:F${partIndex + 2}`,
+              valueInputOption: 'RAW',
+              resource: { values: [[newStock, parts[partIndex].minStock, newCost]] },
+            });
+            
+            parts[partIndex].stock = newStock;
+            parts[partIndex].cost = newCost;
+            updatedParts.push(parts[partIndex]);
+          }
+        }
+      }
+      
+      setParts([...parts, ...newParts]);
+      await loadAllData(spreadsheetId);
+      setModal(null);
+      setSyncStatus('');
+      alert(`Import complete!\n\nAdded: ${newParts.length} new parts\nUpdated: ${updatedParts.length} existing parts`);
+    } catch (err) {
+      setError('Failed to import: ' + err.message);
+      setSyncStatus('');
+    }
+  };
+
   if (isInitializing) {
     return <div className="min-h-screen bg-zinc-900 flex items-center justify-center"><div className="text-teal-400 text-2xl font-black animate-pulse">MAINTENANCE PRO</div></div>;
   }
@@ -1060,6 +1231,7 @@ const App = () => {
             onAdd={() => setModal({ type: 'addPart' })}
             onEdit={(part) => setModal({ type: 'editPart', data: part })}
             onDelete={deletePart}
+            onImport={() => setModal({ type: 'importReceipt' })}
           />
         )}
         {activeTab === 'reports' && (
@@ -1105,7 +1277,7 @@ const App = () => {
       {modal?.type === 'addPart' && <PartModal vendors={vendors} onClose={() => setModal(null)} onSave={addPart} />}
       {modal?.type === 'editPart' && <PartModal part={modal.data} vendors={vendors} onClose={() => setModal(null)} onSave={(updates) => updatePart(modal.data.id, updates)} />}
       {modal?.type === 'viewRepair' && <RepairDetailModal log={modal.data} machines={machines} parts={parts} onClose={() => setModal(null)} onEdit={(log) => setModal({ type: 'editRepair', data: log })} />}
-      {modal?.type === 'editRepair' && !modal.data?.addParts && <EditRepairModal log={modal.data} machines={machines} onClose={() => setModal(null)} onSave={(updates) => updateEquipmentLog(modal.data.id, updates)} />}
+      {modal?.type === 'editRepair' && !modal.data?.addParts && <EditRepairModal log={modal.data} machines={machines} onClose={() => setModal(null)} onSave={(updates) => updateEquipmentLog(modal.data.id, updates)} onAddParts={() => setModal({ type: 'editRepair', data: { ...modal.data, addParts: true } })} />}
       {modal?.type === 'editRepair' && modal.data?.addParts && <AddPartsToRepairModal log={modal.data} parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)} partsUsage={partsUsage} onClose={() => setModal(null)} onSave={addPartsToRepair} />}
       {modal?.type === 'viewBuilding' && <BuildingDetailModal log={modal.data} onClose={() => setModal(null)} onEdit={(log) => setModal({ type: 'editBuilding', data: log })} />}
       {modal?.type === 'editBuilding' && <EditBuildingModal log={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateBuildingLog(modal.data.id, updates)} />}
@@ -1113,6 +1285,7 @@ const App = () => {
       {modal?.type === 'editTask' && <ScheduledTaskModal task={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateScheduledTask(modal.data.id, updates)} />}
       {modal?.type === 'addWarranty' && <WarrantyModal machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={addWarranty} />}
       {modal?.type === 'editWarranty' && <WarrantyModal warranty={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateWarranty(modal.data.id, updates)} />}
+      {modal?.type === 'importReceipt' && <ImportReceiptModal parts={parts} vendors={vendors} onClose={() => setModal(null)} onImport={importPartsFromReceipt} />}
     </div>
   );
 };
@@ -1528,7 +1701,7 @@ const VendorsTab = ({ vendors, equipmentLogs, buildingLogs, onAdd, onEdit, onDel
 };
 
 // Inventory Tab - NEW IN SPRINT 2
-const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onAdjustStock }) => {
+const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onImport }) => {
   const [search, setSearch] = useState('');
   
   const filtered = parts.filter(p => 
@@ -1554,13 +1727,16 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onA
         <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
           <Icon name="package" size={24} /> PARTS INVENTORY
         </h2>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
               <Icon name="search" size={16} />
             </div>
             <input type="text" placeholder="SEARCH..." value={search} onChange={e => setSearch(e.target.value)} className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold focus:border-teal-500 outline-none" />
           </div>
+          <button onClick={onImport} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-yellow-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+            <Icon name="file" /> IMPORT RECEIPT
+          </button>
           <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
             <Icon name="plus" /> ADD PART
           </button>
@@ -2698,7 +2874,7 @@ const BuildingDetailModal = ({ log, onClose, onEdit }) => {
 };
 
 // Edit Repair Modal - NEW IN SPRINT 3
-const EditRepairModal = ({ log, machines, onClose, onSave }) => {
+const EditRepairModal = ({ log, machines, onClose, onSave, onAddParts }) => {
   const [form, setForm] = useState({
     date: log.date,
     issue: log.issue,
@@ -2769,8 +2945,13 @@ const EditRepairModal = ({ log, machines, onClose, onSave }) => {
             </label>
           </div>
           
-          <div className="flex gap-3 pt-4">
+          <div className="flex flex-col sm:flex-row gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
+            {onAddParts && (
+              <button type="button" onClick={onAddParts} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 font-black border-2 border-yellow-700 flex items-center justify-center gap-2">
+                <Icon name="plus" size={16} /> ADD PARTS
+              </button>
+            )}
             <button type="submit" className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-4 py-3 font-black border-2 border-teal-700 flex items-center justify-center gap-2">
               <Icon name="save" size={16} /> {lockOnSave ? 'SAVE & LOCK' : 'SAVE'}
             </button>
@@ -3137,6 +3318,247 @@ const AddPartsToRepairModal = ({ log, parts, partsUsage, onClose, onSave }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// Import Receipt Modal - PDF IMPORT FEATURE
+const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
+  const [step, setStep] = useState('upload'); // upload, review
+  const [pdfFile, setPdfFile] = useState(null);
+  const [extractedItems, setExtractedItems] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || file.type !== 'application/pdf') {
+      alert('Please upload a PDF file');
+      return;
+    }
+    
+    setPdfFile(file);
+    setProcessing(true);
+    
+    try {
+      // Read PDF as text
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const text = event.target.result;
+        
+        // Parse receipt
+        const items = parseReceiptText(text);
+        
+        if (items.length === 0) {
+          alert('No items found in PDF. Please check the file format.');
+          setProcessing(false);
+          return;
+        }
+        
+        // Match to existing parts
+        const matched = items.map(item => {
+          let bestMatch = null;
+          let bestScore = 0;
+          
+          // Try to match by SKU first
+          const skuMatch = parts.find(p => p.sku === item.sku);
+          if (skuMatch) {
+            return { ...item, matchedPart: skuMatch, matchType: 'sku', action: 'update' };
+          }
+          
+          // Try fuzzy name matching
+          parts.forEach(p => {
+            const score = fuzzyMatch(item.name, p.name);
+            if (score > bestScore && score > 60) {
+              bestScore = score;
+              bestMatch = p;
+            }
+          });
+          
+          if (bestMatch) {
+            return { ...item, matchedPart: bestMatch, matchType: 'name', matchScore: bestScore, action: 'update' };
+          }
+          
+          return { ...item, matchedPart: null, action: 'new' };
+        });
+        
+        setExtractedItems(matched);
+        setStep('review');
+        setProcessing(false);
+      };
+      
+      reader.readAsText(file);
+    } catch (err) {
+      alert('Error reading PDF: ' + err.message);
+      setProcessing(false);
+    }
+  };
+  
+  const updateItem = (index, field, value) => {
+    setExtractedItems(extractedItems.map((item, i) => 
+      i === index ? { ...item, [field]: value } : item
+    ));
+  };
+  
+  const toggleItem = (index) => {
+    setExtractedItems(extractedItems.map((item, i) => 
+      i === index ? { ...item, selected: !item.selected } : item
+    ));
+  };
+  
+  const handleImport = () => {
+    const selected = extractedItems.filter(item => item.selected !== false);
+    if (selected.length === 0) {
+      alert('Please select at least one item to import');
+      return;
+    }
+    onImport(selected);
+  };
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-zinc-800 border-4 border-yellow-600 max-w-5xl w-full p-6 my-8">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-yellow-400">IMPORT FROM RECEIPT (PDF)</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        {step === 'upload' && (
+          <div className="space-y-4">
+            <div className="bg-zinc-900 border-2 border-zinc-700 p-6 text-center">
+              <Icon name="file" size={48} className="mx-auto mb-4 text-yellow-400" />
+              <p className="text-white font-bold mb-4">Upload your PDF receipt</p>
+              <p className="text-zinc-400 text-sm mb-6">Supported: Laundry Owners Warehouse, Gold Coin, and similar receipt formats</p>
+              <input 
+                type="file" 
+                accept=".pdf" 
+                onChange={handleFileUpload} 
+                className="hidden" 
+                id="pdf-upload"
+                disabled={processing}
+              />
+              <label 
+                htmlFor="pdf-upload" 
+                className="inline-block bg-yellow-600 hover:bg-yellow-500 text-white px-8 py-4 font-black border-2 border-yellow-700 cursor-pointer"
+              >
+                {processing ? 'PROCESSING...' : 'CHOOSE PDF FILE'}
+              </label>
+            </div>
+            
+            <div className="bg-yellow-900 border-2 border-yellow-600 p-4 text-yellow-200 text-sm">
+              <strong>How it works:</strong>
+              <ol className="list-decimal ml-6 mt-2 space-y-1">
+                <li>Upload your PDF receipt</li>
+                <li>System extracts SKU, name, quantity, price</li>
+                <li>Review and match to existing parts</li>
+                <li>Bulk import updates inventory</li>
+              </ol>
+            </div>
+          </div>
+        )}
+        
+        {step === 'review' && (
+          <div className="space-y-4">
+            <div className="bg-zinc-900 border-2 border-zinc-700 p-4">
+              <p className="text-white font-bold">Found {extractedItems.length} items in receipt</p>
+              <p className="text-zinc-400 text-sm">Review and select items to import</p>
+            </div>
+            
+            <div className="bg-zinc-900 border-2 border-zinc-700 max-h-96 overflow-y-auto">
+              <table className="w-full">
+                <thead className="bg-zinc-800 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-teal-400 font-black text-xs">✓</th>
+                    <th className="px-3 py-2 text-left text-teal-400 font-black text-xs">SKU</th>
+                    <th className="px-3 py-2 text-left text-teal-400 font-black text-xs">NAME</th>
+                    <th className="px-3 py-2 text-center text-teal-400 font-black text-xs">QTY</th>
+                    <th className="px-3 py-2 text-right text-teal-400 font-black text-xs">PRICE</th>
+                    <th className="px-3 py-2 text-left text-teal-400 font-black text-xs">ACTION</th>
+                    <th className="px-3 py-2 text-left text-teal-400 font-black text-xs">MATCH</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {extractedItems.map((item, index) => (
+                    <tr key={index} className="border-b border-zinc-800">
+                      <td className="px-3 py-2">
+                        <input 
+                          type="checkbox" 
+                          checked={item.selected !== false} 
+                          onChange={() => toggleItem(index)}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input 
+                          type="text" 
+                          value={item.sku} 
+                          onChange={(e) => updateItem(index, 'sku', e.target.value)}
+                          className="bg-zinc-700 border border-zinc-600 text-white px-2 py-1 text-sm w-full"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input 
+                          type="text" 
+                          value={item.name} 
+                          onChange={(e) => updateItem(index, 'name', e.target.value)}
+                          className="bg-zinc-700 border border-zinc-600 text-white px-2 py-1 text-sm w-full"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input 
+                          type="number" 
+                          value={item.qty} 
+                          onChange={(e) => updateItem(index, 'qty', parseInt(e.target.value) || 1)}
+                          className="bg-zinc-700 border border-zinc-600 text-white px-2 py-1 text-sm w-16 text-center"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={item.price} 
+                          onChange={(e) => updateItem(index, 'price', parseFloat(e.target.value) || 0)}
+                          className="bg-zinc-700 border border-zinc-600 text-white px-2 py-1 text-sm w-20 text-right"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <select 
+                          value={item.action}
+                          onChange={(e) => updateItem(index, 'action', e.target.value)}
+                          className="bg-zinc-700 border border-zinc-600 text-white px-2 py-1 text-sm"
+                        >
+                          <option value="update">Add Stock</option>
+                          <option value="new">Create New</option>
+                          <option value="skip">Skip</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {item.matchedPart ? (
+                          <span className={`${item.matchType === 'sku' ? 'text-green-400' : 'text-yellow-400'}`}>
+                            {item.matchedPart.name} ({item.matchType === 'sku' ? 'SKU Match' : `${item.matchScore}% match`})
+                          </span>
+                        ) : (
+                          <span className="text-zinc-500">No match</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 pt-4">
+              <button onClick={() => setStep('upload')} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">
+                ← BACK
+              </button>
+              <button onClick={handleImport} className="flex-2 bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 font-black border-2 border-yellow-700 flex items-center justify-center gap-2">
+                <Icon name="download" size={16} /> IMPORT {extractedItems.filter(i => i.selected !== false).length} ITEMS
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
