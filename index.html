@@ -130,47 +130,76 @@ const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   
   console.log('Parser processing', lines.length, 'lines');
+  console.log('First 20 lines:', lines.slice(0, 20)); // DEBUG
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Gold Coin pattern: "9576-203-002 Dexter Dryer High Limit 1 $12.96"
-    // Pattern: SKU Description Qty $Price (all on one line)
-    const goldCoinMatch = line.match(/^([A-Z0-9-]{6,})\s+(.+?)\s+(\d+)\s+\$(\d+\.?\d*)$/);
-    
-    if (goldCoinMatch) {
-      const sku = goldCoinMatch[1];
-      const name = goldCoinMatch[2].trim();
-      const qty = parseInt(goldCoinMatch[3]);
-      const price = parseFloat(goldCoinMatch[4]);
-      
-      if (name && price > 0) {
-        items.push({ sku, name, qty, price });
-        console.log('Found item:', { sku, name, qty, price });
-      }
+    // Skip header lines
+    if (line.includes('ORDER INVOICE') || line.includes('Sold to') || 
+        line.includes('Ship to') || line.includes('Payment Method') || 
+        line.includes('Qty Product Price Tax')) {
       continue;
     }
     
-    // Laundry Owners pattern: "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
-    // Pattern: Qty SKU Description $Price1 $Price2
-    const laundryOwnersMatch = line.match(/^(\d+)\s+([A-Z0-9-]{6,})\s+(.+?)\s+\$(\d+\.?\d*)/);
+    // Pattern 1: Gold Coin - SKU at start, price at end
+    // "9576-203-002 Dexter Dryer High Limit 1 $12.96"
+    // Allow for flexible spacing and optional tax
+    const pattern1 = line.match(/^([A-Z0-9-]{6,20})\s+(.+?)\s+(\d+)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
     
-    if (laundryOwnersMatch) {
-      const qty = parseInt(laundryOwnersMatch[1]);
-      const sku = laundryOwnersMatch[2];
-      let name = laundryOwnersMatch[3];
-      const price = parseFloat(laundryOwnersMatch[4]);
+    if (pattern1) {
+      const sku = pattern1[1];
+      const name = pattern1[2].trim();
+      const qty = parseInt(pattern1[3]);
+      const price = parseFloat(pattern1[4]);
       
-      // Clean name - remove duplicate SKU if present
-      name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
-      // Remove trailing prices
-      name = name.replace(/\s+\$\d+\.?\d*\s*$/, '').trim();
-      
-      if (name && price > 0) {
+      if (name && price > 0 && name.length > 3) {
         items.push({ sku, name, qty, price });
-        console.log('Found item:', { sku, name, qty, price });
+        console.log('✓ Pattern 1 match:', { sku, name, qty, price });
+        continue;
       }
-      continue;
+    }
+    
+    // Pattern 2: Laundry Owners - Qty at start
+    // "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
+    const pattern2 = line.match(/^(\d+)\s+([A-Z0-9-]{6,20})\s+(.+?)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
+    
+    if (pattern2) {
+      const qty = parseInt(pattern2[1]);
+      const sku = pattern2[2];
+      let name = pattern2[3].trim();
+      const price = parseFloat(pattern2[4]);
+      
+      // Clean name - remove duplicate SKU
+      name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
+      
+      if (name && price > 0 && name.length > 3) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 2 match:', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
+    // Pattern 3: Any line ending with qty and price
+    // More flexible catch-all
+    const pattern3 = line.match(/^([A-Z0-9-]{6,20})\s+(.+?)\s+(\d+)\s+\$?\s*(\d+\.\d{2})$/);
+    
+    if (pattern3) {
+      const sku = pattern3[1];
+      const name = pattern3[2].trim();
+      const qty = parseInt(pattern3[3]);
+      const price = parseFloat(pattern3[4]);
+      
+      if (name && price > 0 && name.length > 3 && !name.includes('Subtotal') && !name.includes('Total')) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 3 match:', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
+    // Log lines that might be items but didn't match
+    if (line.match(/[A-Z0-9-]{6,}/) && line.match(/\$\s*\d+/) && line.length < 150) {
+      console.log('⚠ Possible item but no match:', line);
     }
   }
   
