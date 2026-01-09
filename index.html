@@ -82,11 +82,28 @@ const calculateAge = (purchaseDate) => {
 const calculateROI = (machine, logs) => {
   const age = calculateAge(machine.purchaseDate);
   if (!age) return null;
+  
   const machineLogs = logs.filter(l => l.machineId === machine.id);
   const totalCost = machineLogs.reduce((s, l) => s + parseFloat(l.cost || 0), 0);
-  const annualCost = totalCost / age;
-  const estimatedCost = machine.type === 'Dryer' ? 1200 : 1500;
-  return { totalCost, annualCost, age, recommendation: annualCost > (estimatedCost * 0.3) ? 'REPLACE' : 'MAINTAIN' };
+  
+  // For very young machines (< 1 year), use actual age or minimum 1 year to avoid inflated numbers
+  const yearsForCalculation = Math.max(age, 1);
+  const annualCost = totalCost / yearsForCalculation;
+  
+  // Use actual purchase price if available, otherwise estimated replacement cost
+  const replacementCost = machine.purchasePrice ? parseFloat(machine.purchasePrice) : (machine.type === 'Dryer' ? 1200 : 1500);
+  
+  // Recommendation logic:
+  // Replace if: (annual repair cost > 30% of replacement cost) OR (total repairs > 50% of replacement cost AND age > 5 years)
+  const shouldReplace = (annualCost > replacementCost * 0.3) || (totalCost > replacementCost * 0.5 && age > 5);
+  
+  return { 
+    totalCost, 
+    annualCost, 
+    age, 
+    replacementCost,
+    recommendation: shouldReplace ? 'REPLACE' : 'MAINTAIN'
+  };
 };
 
 const exportToCSV = (data, filename) => {
@@ -1017,9 +1034,9 @@ const App = () => {
           id: Date.now().toString() + Math.random(),
           taskId: task.id,
           taskName: task.task,
-          machineId: task.machineId,
-          machineName: machines.find(m => m.id === task.machineId)?.name,
-          location: task.location,
+          machineId: task.type === 'Equipment' ? task.machineId : null,
+          machineName: task.type === 'Equipment' && task.machineId ? machines.find(m => m.id === task.machineId)?.name : null,
+          location: task.type === 'Building' ? task.location : null,
           completedDate: today,
           type: task.type || 'Equipment'
         };
@@ -1651,9 +1668,14 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                 <p className="text-zinc-400"><span className="font-bold">TYPE:</span> {m.type}</p>
                 {age && <p className="text-zinc-400"><span className="font-bold">AGE:</span> {age.toFixed(1)} years</p>}
                 {roi && !isArchived && (
-                  <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
-                    {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
-                  </p>
+                  <div>
+                    <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
+                      {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Replacement: ${roi.replacementCost.toFixed(0)}
+                    </p>
+                  </div>
                 )}
               </div>
               <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
@@ -2777,6 +2799,8 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
       const total = task.children?.length || 0;
       const isExpanded = expandedBulk[task.id];
       
+      console.log('Bulk task:', task.id, 'Children:', task.children, 'isExpanded:', isExpanded); // DEBUG
+      
       return (
         <div key={task.id} className={`bg-zinc-800 border-2 ${isOverdue ? 'border-red-600' : daysTilDue <= 14 ? 'border-yellow-600' : 'border-zinc-700'}`}>
           <div className="p-4">
@@ -2807,7 +2831,7 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
                 NEXT DUE: {task.nextDue} {isOverdue && '(OVERDUE!)'}
               </p>
             </div>
-            {isExpanded && task.children && (
+            {isExpanded && task.children && task.children.length > 0 ? (
               <div className="bg-zinc-900 border border-zinc-700 p-3 mb-3 space-y-2">
                 {task.children.map(child => (
                   <div key={child.id} className="flex items-center justify-between bg-zinc-800 p-2 rounded">
@@ -2833,6 +2857,11 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
                     )}
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="bg-zinc-900 border border-zinc-700 p-3 mb-3 text-zinc-500 text-sm">
+                {!isExpanded && 'Click arrow to expand'}
+                {isExpanded && (!task.children || task.children.length === 0) && 'No children found'}
               </div>
             )}
             <button 
@@ -3858,7 +3887,7 @@ const MaintenanceHistoryModal = ({ history, onClose, onExport }) => {
             <tbody>
               {filtered.sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate)).map((h, idx) => (
                 <tr key={idx} className="border-b border-zinc-800 hover:bg-zinc-800">
-                  <td className="px-4 py-3 text-white font-bold">{new Date(h.completedDate).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-white font-bold">{h.completedDate}</td>
                   <td className="px-4 py-3 text-zinc-300">{h.taskName}</td>
                   <td className="px-4 py-3 text-zinc-300">{h.machineName || h.location || 'Building-wide'}</td>
                   <td className="px-4 py-3 text-center">
@@ -4064,11 +4093,17 @@ const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
         fullText += pageText + '\n';
       }
       
+      console.log('Extracted PDF text:', fullText); // DEBUG
+      
       // Parse receipt
       const items = parseReceiptText(fullText);
       
+      console.log('Parsed items:', items); // DEBUG
+      
       if (items.length === 0) {
-        alert('No items found in PDF. Please check the file format.\n\nExtracted text preview:\n' + fullText.substring(0, 500));
+        // Show more helpful error with text preview
+        const preview = fullText.substring(0, 500);
+        alert('No items found in PDF. Please check the file format.\n\nExtracted text preview:\n' + preview);
         setProcessing(false);
         return;
       }
@@ -4105,6 +4140,7 @@ const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
       setProcessing(false);
     } catch (err) {
       alert('Error reading PDF: ' + err.message);
+      console.error('PDF error:', err);
       setProcessing(false);
     }
   };
