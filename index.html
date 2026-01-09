@@ -17,6 +17,13 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // PDF.js worker configuration
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
 </head>
 <body>
   <div id="root"></div>
@@ -216,6 +223,7 @@ const App = () => {
   const [parts, setParts] = useState([]);
   const [partsUsage, setPartsUsage] = useState([]);
   const [scheduledTasks, setScheduledTasks] = useState([]);
+  const [maintenanceHistory, setMaintenanceHistory] = useState([]);
   const [warranties, setWarranties] = useState([]);
   
   const [year, setYear] = useState(new Date().getFullYear());
@@ -385,7 +393,7 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:H', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:K', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
@@ -397,7 +405,19 @@ const App = () => {
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
       setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
-      setScheduledTasks(sched.map(r => ({ id: r[0], machineId: r[1], task: r[2], frequency: r[3], lastCompleted: r[4] || '', nextDue: r[5], notes: r[6] || '', active: r[7] !== 'false' })));
+      setScheduledTasks(sched.map(r => ({ 
+        id: r[0], 
+        machineId: r[1] || '', 
+        task: r[2], 
+        frequency: r[3], 
+        lastCompleted: r[4] || '', 
+        nextDue: r[5], 
+        notes: r[6] || '', 
+        active: r[7] !== 'false',
+        type: r[8] || 'Equipment',
+        location: r[9] || '',
+        children: r[10] ? JSON.parse(r[10]) : []
+      })));
       setWarranties(warr.map(r => ({ id: r[0], machineId: r[1], startDate: r[2], endDate: r[3], provider: r[4], coverage: r[5] || '', notes: r[6] || '' })));
 
       generateAlerts(part, sched, warr);
@@ -877,9 +897,9 @@ const App = () => {
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Scheduled Maintenance!A:H',
+        range: 'Scheduled Maintenance!A:K',
         valueInputOption: 'RAW',
-        resource: { values: [[newTask.id, newTask.machineId, newTask.task, newTask.frequency, newTask.lastCompleted || '', newTask.nextDue, newTask.notes || '', 'true']] },
+        resource: { values: [[newTask.id, newTask.machineId || '', newTask.task, newTask.frequency, newTask.lastCompleted || '', newTask.nextDue, newTask.notes || '', 'true', newTask.type || 'Equipment', newTask.location || '', JSON.stringify(newTask.children || [])]] },
       });
       const newTasks = [...scheduledTasks, newTask];
       setScheduledTasks(newTasks);
@@ -898,9 +918,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Scheduled Maintenance!A${rowNum}:H${rowNum}`,
+        range: `Scheduled Maintenance!A${rowNum}:K${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.machineId, updated.task, updated.frequency, updated.lastCompleted || '', updated.nextDue, updated.notes || '', updated.active ? 'true' : 'false']] },
+        resource: { values: [[updated.id, updated.machineId || '', updated.task, updated.frequency, updated.lastCompleted || '', updated.nextDue, updated.notes || '', updated.active ? 'true' : 'false', updated.type || 'Equipment', updated.location || '', JSON.stringify(updated.children || [])]] },
       });
       
       const newTasks = scheduledTasks.map(t => t.id === id ? updated : t);
@@ -918,19 +938,90 @@ const App = () => {
       case 'Weekly': d.setDate(d.getDate() + 7); break;
       case 'Monthly': d.setMonth(d.getMonth() + 1); break;
       case 'Quarterly': d.setMonth(d.getMonth() + 3); break;
-      case 'Annually': d.setFullYear(d.getFullYear() + 1); break;
+      case 'Semi-Annual': d.setMonth(d.getMonth() + 6); break;
+      case 'Annual': case 'Annually': d.setFullYear(d.getFullYear() + 1); break;
     }
     return d.toISOString().split('T')[0];
   };
 
-  const completeScheduledTask = async (id) => {
-    const task = scheduledTasks.find(t => t.id === id);
+  const completeScheduledTask = async (taskId, childId = null) => {
+    const task = scheduledTasks.find(t => t.id === taskId);
     if (!task) return;
     
     const today = getTodayLocal();
-    const nextDue = calculateNextDue(today, task.frequency);
     
-    await updateScheduledTask(id, { lastCompleted: today, nextDue });
+    try {
+      if (task.type === 'Bulk' && childId) {
+        // Complete individual child task
+        const childIndex = task.children.findIndex(c => c.id === childId);
+        if (childIndex >= 0) {
+          task.children[childIndex].completed = true;
+          task.children[childIndex].completedDate = today;
+          
+          // Log to history
+          const historyEntry = {
+            id: Date.now().toString() + Math.random(),
+            taskId: task.id,
+            taskName: task.task,
+            machineId: task.children[childIndex].machineId,
+            machineName: task.children[childIndex].machineName,
+            completedDate: today,
+            type: 'Equipment'
+          };
+          
+          const newHistory = [...maintenanceHistory, historyEntry];
+          setMaintenanceHistory(newHistory);
+          
+          // Update task with completed child
+          await updateScheduledTask(taskId, { children: task.children });
+          
+          // Check if all children complete
+          const allComplete = task.children.every(c => c.completed);
+          if (allComplete) {
+            const nextDue = calculateNextDue(today, task.frequency);
+            // Reset all children
+            const resetChildren = task.children.map(c => ({ ...c, completed: false, completedDate: null }));
+            await updateScheduledTask(taskId, { 
+              lastCompleted: today, 
+              nextDue,
+              children: resetChildren
+            });
+          }
+        }
+      } else {
+        // Complete regular task or all bulk tasks
+        const nextDue = calculateNextDue(today, task.frequency);
+        
+        // Log to history
+        const historyEntry = {
+          id: Date.now().toString() + Math.random(),
+          taskId: task.id,
+          taskName: task.task,
+          machineId: task.machineId,
+          machineName: machines.find(m => m.id === task.machineId)?.name,
+          location: task.location,
+          completedDate: today,
+          type: task.type || 'Equipment'
+        };
+        
+        const newHistory = [...maintenanceHistory, historyEntry];
+        setMaintenanceHistory(newHistory);
+        
+        // If bulk task, reset all children
+        if (task.type === 'Bulk') {
+          const resetChildren = task.children.map(c => ({ ...c, completed: false, completedDate: null }));
+          await updateScheduledTask(taskId, { 
+            lastCompleted: today, 
+            nextDue,
+            children: resetChildren
+          });
+        } else {
+          await updateScheduledTask(taskId, { lastCompleted: today, nextDue });
+        }
+      }
+    } catch (err) {
+      setError('Failed to complete task: ' + err.message);
+    }
   };
 
   const deleteScheduledTask = async (id) => {
@@ -947,6 +1038,54 @@ const App = () => {
     } catch (err) {
       setError('Failed to delete task');
     }
+  };
+
+  // Create Bulk Schedule - NEW IN SPRINT 3.1
+  const createBulkSchedule = async (form, selectedMachines) => {
+    try {
+      const bulkTask = {
+        id: Date.now().toString(),
+        type: 'Bulk',
+        task: form.task,
+        equipmentType: form.equipmentType,
+        frequency: form.frequency,
+        nextDue: form.nextDue,
+        lastCompleted: null,
+        active: true,
+        children: selectedMachines.map(m => ({
+          id: Date.now().toString() + Math.random(),
+          machineId: m.id,
+          machineName: m.name,
+          completed: false,
+          completedDate: null
+        }))
+      };
+      
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Scheduled Maintenance!A:I',
+        valueInputOption: 'RAW',
+        resource: { values: [[bulkTask.id, bulkTask.task, '', bulkTask.frequency, bulkTask.lastCompleted || '', bulkTask.nextDue, bulkTask.active ? 'true' : 'false', bulkTask.type || '', JSON.stringify(bulkTask.children || [])]] },
+      });
+      
+      const newTasks = [...scheduledTasks, bulkTask];
+      setScheduledTasks(newTasks);
+      setModal(null);
+      generateAlerts(parts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]), newTasks, warranties);
+    } catch (err) {
+      setError('Failed to create bulk schedule: ' + err.message);
+    }
+  };
+
+  // Export History - NEW IN SPRINT 3.1
+  const exportHistory = () => {
+    const data = maintenanceHistory.map(h => ({
+      Date: h.completedDate,
+      Task: h.taskName,
+      Machine: h.machineName || h.location || 'Building-wide',
+      Type: h.type || 'Equipment'
+    }));
+    exportToCSV(data, `maintenance-history-${getTodayLocal()}.csv`);
   };
 
   // Warranties CRUD
@@ -1252,6 +1391,8 @@ const App = () => {
             onEdit={(task) => setModal({ type: 'editTask', data: task })}
             onComplete={completeScheduledTask}
             onDelete={deleteScheduledTask}
+            onAddBulk={() => setModal({ type: 'bulkSchedule' })}
+            onShowHistory={() => setModal({ type: 'maintenanceHistory' })}
           />
         )}
         {activeTab === 'warranties' && (
@@ -1285,6 +1426,8 @@ const App = () => {
       {modal?.type === 'editTask' && <ScheduledTaskModal task={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateScheduledTask(modal.data.id, updates)} />}
       {modal?.type === 'addWarranty' && <WarrantyModal machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={addWarranty} />}
       {modal?.type === 'editWarranty' && <WarrantyModal warranty={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateWarranty(modal.data.id, updates)} />}
+      {modal?.type === 'bulkSchedule' && <BulkScheduleModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={createBulkSchedule} />}
+      {modal?.type === 'maintenanceHistory' && <MaintenanceHistoryModal history={maintenanceHistory} onClose={() => setModal(null)} onExport={exportHistory} />}
       {modal?.type === 'importReceipt' && <ImportReceiptModal parts={parts} vendors={vendors} onClose={() => setModal(null)} onImport={importPartsFromReceipt} />}
     </div>
   );
@@ -1848,10 +1991,25 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: '#fff', font: { weight: 'bold' } } }
+            legend: { labels: { color: '#fff', font: { weight: 'bold' } } },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return context.dataset.label + ': $' + context.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                }
+              }
+            }
           },
           scales: {
-            y: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } },
+            y: { 
+              ticks: { 
+                color: '#94a3b8',
+                callback: function(value) {
+                  return '$' + value.toLocaleString('en-US', {minimumFractionDigits: 0});
+                }
+              }, 
+              grid: { color: '#3f3f46' } 
+            },
             x: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } }
           }
         }
@@ -1888,7 +2046,14 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-              legend: { labels: { color: '#fff', font: { weight: 'bold' } } }
+              legend: { labels: { color: '#fff', font: { weight: 'bold' } } },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    return context.label + ': $' + context.parsed.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                  }
+                }
+              }
             }
           }
         });
@@ -1924,7 +2089,18 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
               legend: { display: false }
             },
             scales: {
-              x: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } },
+              x: { 
+                ticks: { 
+                  color: '#94a3b8',
+                  stepSize: 1,
+                  callback: function(value) {
+                    if (Math.floor(value) === value) {
+                      return value;
+                    }
+                  }
+                }, 
+                grid: { color: '#3f3f46' } 
+              },
               y: { ticks: { color: '#94a3b8' }, grid: { color: '#3f3f46' } }
             }
           }
@@ -1978,18 +2154,18 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
           <Icon name="chart" size={24} /> REPORTS & ANALYTICS
         </h2>
-        <div className="flex gap-2">
-          <button onClick={exportEquipmentCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={exportEquipmentCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-3 sm:px-4 py-2 font-bold flex items-center gap-2 text-xs sm:text-sm">
             <Icon name="download" size={16} /> EQUIPMENT
           </button>
-          <button onClick={exportRepairsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+          <button onClick={exportRepairsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-3 sm:px-4 py-2 font-bold flex items-center gap-2 text-xs sm:text-sm">
             <Icon name="download" size={16} /> REPAIRS
           </button>
-          <button onClick={exportPartsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+          <button onClick={exportPartsCSV} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-teal-500 text-teal-400 px-3 sm:px-4 py-2 font-bold flex items-center gap-2 text-xs sm:text-sm">
             <Icon name="download" size={16} /> PARTS
           </button>
         </div>
@@ -2518,60 +2694,238 @@ const PartModal = ({ part, vendors, onClose, onSave }) => {
 };
 
 // Scheduled Maintenance Tab - NEW IN SPRINT 3
-const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, onDelete }) => {
+const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, onDelete, onAddBulk, onShowHistory }) => {
   const today = new Date();
-  const activeTasks = tasks.filter(t => t.active);
+  const [filter, setFilter] = useState('dueSoon'); // 'overdue', 'dueSoon', 'all'
+  const [expandedBulk, setExpanded
+
+Bulk] = useState({});
+  
+  // Filter tasks based on due date
+  const getFilteredTasks = (tasksList) => {
+    return tasksList.filter(t => {
+      if (!t.active) return false;
+      const dueDate = new Date(t.nextDue);
+      const daysTilDue = Math.floor((dueDate - today) / (1000 * 60 * 60 * 24));
+      
+      if (filter === 'overdue') return daysTilDue < 0;
+      if (filter === 'dueSoon') return daysTilDue >= 0 && daysTilDue <= 14;
+      return true; // 'all'
+    });
+  };
+  
+  // Split tasks by type
+  const equipmentTasks = tasks.filter(t => t.type === 'Equipment' || (!t.type && t.machineId));
+  const buildingTasks = tasks.filter(t => t.type === 'Building' || (!t.type && !t.machineId));
+  const bulkTasks = tasks.filter(t => t.type === 'Bulk');
+  
+  const filteredEquipment = getFilteredTasks(equipmentTasks);
+  const filteredBuilding = getFilteredTasks(buildingTasks);
+  const filteredBulk = getFilteredTasks(bulkTasks);
+  
+  const toggleBulkExpand = (taskId) => {
+    setExpandedBulk({ ...expandedBulk, [taskId]: !expandedBulk[taskId] });
+  };
+  
+  const renderTask = (task, isBulk = false) => {
+    const machine = machines.find(m => m.id === task.machineId);
+    const dueDate = new Date(task.nextDue);
+    const isOverdue = dueDate < today;
+    const daysTilDue = Math.floor((dueDate - today) / (1000 * 60 * 60 * 24));
+    
+    if (isBulk) {
+      // Render bulk parent task
+      const completed = task.children?.filter(c => c.completed).length || 0;
+      const total = task.children?.length || 0;
+      const isExpanded = expandedBulk[task.id];
+      
+      return (
+        <div key={task.id} className={`bg-zinc-800 border-2 ${isOverdue ? 'border-red-600' : daysTilDue <= 14 ? 'border-yellow-600' : 'border-zinc-700'}`}>
+          <div className="p-4">
+            <div className="flex justify-between items-start mb-3">
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => toggleBulkExpand(task.id)} className="text-teal-400 hover:text-teal-300">
+                    <Icon name={isExpanded ? "chevron-down" : "chevron-right"} size={20} />
+                  </button>
+                  <div>
+                    <h3 className="text-lg font-black text-white">{task.task} (All {task.equipmentType}s)</h3>
+                    <p className="text-xs text-zinc-400 font-bold">Progress: {completed}/{total} complete</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => onEdit(task)} className="text-teal-400 hover:text-teal-300">
+                  <Icon name="edit" size={16} />
+                </button>
+                <button onClick={() => onDelete(task.id)} className="text-red-400 hover:text-red-300">
+                  <Icon name="trash" size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1 text-sm mb-3">
+              <p className="text-zinc-400"><span className="font-bold">FREQUENCY:</span> {task.frequency}</p>
+              <p className={`font-bold ${isOverdue ? 'text-red-400' : daysTilDue <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>
+                NEXT DUE: {task.nextDue} {isOverdue && '(OVERDUE!)'}
+              </p>
+            </div>
+            {isExpanded && task.children && (
+              <div className="bg-zinc-900 border border-zinc-700 p-3 mb-3 space-y-2">
+                {task.children.map(child => (
+                  <div key={child.id} className="flex items-center justify-between bg-zinc-800 p-2 rounded">
+                    <div className="flex items-center gap-3">
+                      {child.completed ? (
+                        <Icon name="check-circle" size={20} className="text-green-400" />
+                      ) : (
+                        <Icon name="circle" size={20} className="text-zinc-600" />
+                      )}
+                      <span className={`text-sm ${child.completed ? 'text-zinc-500 line-through' : 'text-white font-bold'}`}>
+                        {child.machineName}
+                      </span>
+                    </div>
+                    {child.completed ? (
+                      <span className="text-xs text-zinc-500">{child.completedDate}</span>
+                    ) : (
+                      <button 
+                        onClick={() => onComplete(task.id, child.id)} 
+                        className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 text-xs font-bold border border-teal-700"
+                      >
+                        COMPLETE
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button 
+              onClick={() => onComplete(task.id)} 
+              className="w-full bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold border-2 border-teal-700 flex items-center justify-center gap-2"
+            >
+              <Icon name="check" size={16} /> COMPLETE ALL ({total - completed} remaining)
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    // Regular task (Equipment or Building)
+    return (
+      <div key={task.id} className={`bg-zinc-800 border-2 p-4 ${isOverdue ? 'border-red-600' : daysTilDue <= 14 ? 'border-yellow-600' : 'border-zinc-700'}`}>
+        <div className="flex justify-between mb-3">
+          <div>
+            <h3 className="text-lg font-black text-white">{task.task}</h3>
+            <p className="text-xs text-zinc-400 font-bold">{machine?.name || task.location || 'Building-wide'}</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onEdit(task)} className="text-teal-400 hover:text-teal-300">
+              <Icon name="edit" size={16} />
+            </button>
+            <button onClick={() => onDelete(task.id)} className="text-red-400 hover:text-red-300">
+              <Icon name="trash" size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="space-y-1 text-sm mb-3">
+          <p className="text-zinc-400"><span className="font-bold">FREQUENCY:</span> {task.frequency}</p>
+          <p className="text-zinc-400"><span className="font-bold">LAST DONE:</span> {task.lastCompleted || 'Never'}</p>
+          <p className={`font-bold ${isOverdue ? 'text-red-400' : daysTilDue <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>
+            NEXT DUE: {task.nextDue} {isOverdue && '(OVERDUE!)'}
+          </p>
+        </div>
+        <button onClick={() => onComplete(task.id)} className="w-full bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold border-2 border-teal-700 flex items-center justify-center gap-2">
+          <Icon name="check" size={16} /> COMPLETE TASK
+        </button>
+      </div>
+    );
+  };
+  
+  const overdueCount = tasks.filter(t => {
+    if (!t.active) return false;
+    const daysTilDue = Math.floor((new Date(t.nextDue) - today) / (1000 * 60 * 60 * 24));
+    return daysTilDue < 0;
+  }).length;
+  
+  const dueSoonCount = tasks.filter(t => {
+    if (!t.active) return false;
+    const daysTilDue = Math.floor((new Date(t.nextDue) - today) / (1000 * 60 * 60 * 24));
+    return daysTilDue >= 0 && daysTilDue <= 14;
+  }).length;
   
   return (
-    <div>
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between mb-4 gap-4">
         <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
           <Icon name="clock" size={24} /> SCHEDULED MAINTENANCE
         </h2>
-        <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
-          <Icon name="plus" /> ADD TASK
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={onShowHistory} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-yellow-600 text-yellow-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+            <Icon name="file" size={16} /> HISTORY
+          </button>
+          <button onClick={onAddBulk} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 font-bold border-2 border-yellow-700 flex items-center gap-2 text-sm">
+            <Icon name="layers" size={16} /> BULK SCHEDULE
+          </button>
+          <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+            <Icon name="plus" /> ADD TASK
+          </button>
+        </div>
+      </div>
+      
+      <div className="flex gap-2 flex-wrap">
+        <button 
+          onClick={() => setFilter('overdue')} 
+          className={`px-4 py-2 font-bold border-2 flex items-center gap-2 ${filter === 'overdue' ? 'bg-red-600 border-red-700 text-white' : 'bg-zinc-800 border-red-600 text-red-400'}`}
+        >
+          OVERDUE ({overdueCount})
+        </button>
+        <button 
+          onClick={() => setFilter('dueSoon')} 
+          className={`px-4 py-2 font-bold border-2 flex items-center gap-2 ${filter === 'dueSoon' ? 'bg-yellow-600 border-yellow-700 text-white' : 'bg-zinc-800 border-yellow-600 text-yellow-400'}`}
+        >
+          DUE SOON ({dueSoonCount})
+        </button>
+        <button 
+          onClick={() => setFilter('all')} 
+          className={`px-4 py-2 font-bold border-2 flex items-center gap-2 ${filter === 'all' ? 'bg-teal-600 border-teal-700 text-white' : 'bg-zinc-800 border-teal-600 text-teal-400'}`}
+        >
+          ALL TASKS ({tasks.filter(t => t.active).length})
         </button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {activeTasks.map(task => {
-          const machine = machines.find(m => m.id === task.machineId);
-          const dueDate = new Date(task.nextDue);
-          const isOverdue = dueDate < today;
-          const daysTilDue = Math.floor((dueDate - today) / (1000 * 60 * 60 * 24));
-          
-          return (
-            <div key={task.id} className={`bg-zinc-800 border-2 p-4 ${isOverdue ? 'border-red-600' : daysTilDue <= 14 ? 'border-yellow-600' : 'border-zinc-700'}`}>
-              <div className="flex justify-between mb-3">
-                <div>
-                  <h3 className="text-lg font-black text-white">{task.task}</h3>
-                  <p className="text-xs text-zinc-400 font-bold">{machine?.name || 'Unknown Machine'}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => onEdit(task)} className="text-teal-400 hover:text-teal-300">
-                    <Icon name="edit" size={16} />
-                  </button>
-                  <button onClick={() => onDelete(task.id)} className="text-red-400 hover:text-red-300">
-                    <Icon name="trash" size={16} />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1 text-sm mb-3">
-                <p className="text-zinc-400"><span className="font-bold">FREQUENCY:</span> {task.frequency}</p>
-                <p className="text-zinc-400"><span className="font-bold">LAST DONE:</span> {task.lastCompleted || 'Never'}</p>
-                <p className={`font-bold ${isOverdue ? 'text-red-400' : daysTilDue <= 14 ? 'text-yellow-400' : 'text-green-400'}`}>
-                  NEXT DUE: {task.nextDue} {isOverdue && '(OVERDUE!)'}
-                </p>
-              </div>
-              <button onClick={() => onComplete(task.id)} className="w-full bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold border-2 border-teal-700 flex items-center justify-center gap-2">
-                <Icon name="check" size={16} /> COMPLETE TASK
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      {activeTasks.length === 0 && (
+      
+      {/* Equipment Maintenance Section */}
+      {(filteredEquipment.length > 0 || filteredBulk.length > 0) && (
+        <div>
+          <h3 className="text-xl font-black text-white mb-3 flex items-center gap-2">
+            <Icon name="wrench" size={20} /> EQUIPMENT MAINTENANCE
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            {filteredEquipment.map(task => renderTask(task))}
+            {filteredBulk.map(task => renderTask(task, true))}
+          </div>
+        </div>
+      )}
+      
+      {/* Building Maintenance Section */}
+      {filteredBuilding.length > 0 && (
+        <div>
+          <h3 className="text-xl font-black text-white mb-3 flex items-center gap-2">
+            <Icon name="home" size={20} /> BUILDING MAINTENANCE
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredBuilding.map(task => renderTask(task))}
+          </div>
+        </div>
+      )}
+      
+      {(filteredEquipment.length === 0 && filteredBuilding.length === 0 && filteredBulk.length === 0) && (
         <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
-          <p className="text-zinc-500 font-bold">NO SCHEDULED TASKS</p>
+          <p className="text-zinc-500 font-bold">
+            {filter === 'overdue' && 'NO OVERDUE TASKS'}
+            {filter === 'dueSoon' && 'NO TASKS DUE SOON'}
+            {filter === 'all' && 'NO SCHEDULED TASKS'}
+          </p>
+          <p className="text-zinc-600 text-sm mt-2">
+            {filter !== 'all' && 'Try changing the filter to see more tasks'}
+          </p>
         </div>
       )}
     </div>
@@ -3060,10 +3414,12 @@ const EditBuildingModal = ({ log, onClose, onSave }) => {
   );
 };
 
-// Scheduled Task Modal
+// Scheduled Task Modal - UPDATED FOR SPRINT 3.1
 const ScheduledTaskModal = ({ task, machines, onClose, onSave }) => {
   const [form, setForm] = useState(task || {
+    type: 'Equipment',
     machineId: machines.filter(m => !m.archived)[0]?.id || '',
+    location: '',
     task: '',
     frequency: 'Monthly',
     nextDue: getTodayLocal(),
@@ -3086,36 +3442,89 @@ const ScheduledTaskModal = ({ task, machines, onClose, onSave }) => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-black text-teal-400 mb-2">MACHINE</label>
-            <select required value={form.machineId} onChange={e => setForm({...form, machineId: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500">
-              {machines.filter(m => !m.archived).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            <label className="block text-xs font-black text-teal-400 mb-2">TASK TYPE</label>
+            <select 
+              value={form.type || 'Equipment'} 
+              onChange={e => setForm({...form, type: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            >
+              <option value="Equipment">Equipment Maintenance</option>
+              <option value="Building">Building Maintenance</option>
             </select>
           </div>
           
+          {form.type === 'Equipment' ? (
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">MACHINE *</label>
+              <select 
+                required 
+                value={form.machineId} 
+                onChange={e => setForm({...form, machineId: e.target.value})} 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+              >
+                {machines.filter(m => !m.archived).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-black text-teal-400 mb-2">LOCATION/AREA</label>
+              <input 
+                type="text" 
+                value={form.location || ''} 
+                onChange={e => setForm({...form, location: e.target.value})} 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" 
+                placeholder="e.g., Roof, HVAC, Front Entrance"
+              />
+            </div>
+          )}
+          
           <div>
-            <label className="block text-xs font-black text-teal-400 mb-2">TASK DESCRIPTION</label>
-            <input type="text" required value={form.task} onChange={e => setForm({...form, task: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., Change filter" />
+            <label className="block text-xs font-black text-teal-400 mb-2">TASK DESCRIPTION *</label>
+            <input 
+              type="text" 
+              required 
+              value={form.task} 
+              onChange={e => setForm({...form, task: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" 
+              placeholder={form.type === 'Equipment' ? "e.g., Change filter" : "e.g., HVAC filter replacement"}
+            />
           </div>
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-black text-teal-400 mb-2">FREQUENCY</label>
-              <select required value={form.frequency} onChange={e => setForm({...form, frequency: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500">
+              <label className="block text-xs font-black text-teal-400 mb-2">FREQUENCY *</label>
+              <select 
+                required 
+                value={form.frequency} 
+                onChange={e => setForm({...form, frequency: e.target.value})} 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+              >
                 <option>Weekly</option>
                 <option>Monthly</option>
                 <option>Quarterly</option>
-                <option>Annually</option>
+                <option>Semi-Annual</option>
+                <option>Annual</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE</label>
-              <input type="date" required value={form.nextDue} onChange={e => setForm({...form, nextDue: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" />
+              <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE *</label>
+              <input 
+                type="date" 
+                required 
+                value={form.nextDue} 
+                onChange={e => setForm({...form, nextDue: e.target.value})} 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+              />
             </div>
           </div>
           
           <div>
             <label className="block text-xs font-black text-teal-400 mb-2">NOTES</label>
-            <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500 h-20" />
+            <textarea 
+              value={form.notes || ''} 
+              onChange={e => setForm({...form, notes: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500 h-20"
+            />
           </div>
           
           <div className="flex gap-3 pt-4">
@@ -3323,6 +3732,217 @@ const AddPartsToRepairModal = ({ log, parts, partsUsage, onClose, onSave }) => {
   );
 };
 
+// Maintenance History Modal - NEW IN SPRINT 3.1
+const MaintenanceHistoryModal = ({ history, onClose, onExport }) => {
+  const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState('30'); // days
+  
+  const filtered = history.filter(h => {
+    const matchesSearch = !search || 
+      h.taskName?.toLowerCase().includes(search.toLowerCase()) ||
+      h.machineName?.toLowerCase().includes(search.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    
+    const daysAgo = (new Date() - new Date(h.completedDate)) / (1000 * 60 * 60 * 24);
+    if (dateRange === 'all') return true;
+    return daysAgo <= parseInt(dateRange);
+  });
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-zinc-800 border-4 border-teal-600 max-w-4xl w-full p-6 my-8">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-teal-400">MAINTENANCE HISTORY</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        <div className="flex gap-4 mb-4 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <input 
+              type="text" 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+              placeholder="Search task or machine..."
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            />
+          </div>
+          <select 
+            value={dateRange} 
+            onChange={e => setDateRange(e.target.value)} 
+            className="bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+          >
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+        
+        <div className="bg-zinc-900 border-2 border-zinc-700 max-h-96 overflow-y-auto">
+          <table className="w-full">
+            <thead className="bg-zinc-800 sticky top-0">
+              <tr>
+                <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">DATE</th>
+                <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">TASK</th>
+                <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">MACHINE/LOCATION</th>
+                <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">TYPE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate)).map((h, idx) => (
+                <tr key={idx} className="border-b border-zinc-800 hover:bg-zinc-800">
+                  <td className="px-4 py-3 text-white font-bold">{new Date(h.completedDate).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-zinc-300">{h.taskName}</td>
+                  <td className="px-4 py-3 text-zinc-300">{h.machineName || h.location || 'Building-wide'}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`px-2 py-1 text-xs font-bold rounded ${h.type === 'Equipment' ? 'bg-teal-900 text-teal-300' : 'bg-orange-900 text-orange-300'}`}>
+                      {h.type || 'Equipment'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="text-center py-8 text-zinc-500 font-bold">NO HISTORY FOUND</div>
+          )}
+        </div>
+        
+        <div className="flex gap-3 pt-4">
+          <button onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">
+            CLOSE
+          </button>
+          <button onClick={onExport} className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-4 py-3 font-black border-2 border-teal-700 flex items-center justify-center gap-2">
+            <Icon name="download" size={16} /> EXPORT CSV
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Bulk Schedule Modal - NEW IN SPRINT 3.1
+const BulkScheduleModal = ({ machines, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    task: '',
+    equipmentType: 'Washer',
+    frequency: 'Monthly',
+    nextDue: getTodayLocal()
+  });
+  
+  const types = [...new Set(machines.filter(m => !m.archived).map(m => m.type))];
+  const selectedMachines = machines.filter(m => !m.archived && m.type === form.equipmentType);
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!form.task) {
+      alert('Please enter a task name');
+      return;
+    }
+    if (selectedMachines.length === 0) {
+      alert('No machines found for selected equipment type');
+      return;
+    }
+    onSave(form, selectedMachines);
+  };
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-zinc-800 border-4 border-yellow-600 max-w-2xl w-full p-6 my-8">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-yellow-400">BULK SCHEDULE BY EQUIPMENT TYPE</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        <div className="bg-yellow-900 border-2 border-yellow-600 p-3 mb-4 text-yellow-200 text-sm">
+          <strong>Bulk Scheduling:</strong> This will create one task for each {form.equipmentType} ({selectedMachines.length} machines). 
+          You can then complete them individually as you work through each machine.
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">TASK NAME *</label>
+            <input 
+              type="text" 
+              required
+              value={form.task} 
+              onChange={e => setForm({...form, task: e.target.value})} 
+              placeholder="e.g., Burner Cleaning, Filter Replacement"
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">EQUIPMENT TYPE *</label>
+            <select 
+              required
+              value={form.equipmentType} 
+              onChange={e => setForm({...form, equipmentType: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+            >
+              {types.map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-400 mt-1">{selectedMachines.length} {form.equipmentType}(s) found</p>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">FREQUENCY *</label>
+            <select 
+              required
+              value={form.frequency} 
+              onChange={e => setForm({...form, frequency: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+            >
+              <option value="Weekly">Weekly</option>
+              <option value="Monthly">Monthly</option>
+              <option value="Quarterly">Quarterly</option>
+              <option value="Semi-Annual">Semi-Annual</option>
+              <option value="Annual">Annual</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE DATE *</label>
+            <input 
+              type="date" 
+              required
+              value={form.nextDue} 
+              onChange={e => setForm({...form, nextDue: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            />
+          </div>
+          
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+            <p className="text-white font-bold mb-2">Preview: Machines to be scheduled</p>
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {selectedMachines.map(m => (
+                <div key={m.id} className="text-sm text-zinc-400">• {m.name}</div>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">
+              CANCEL
+            </button>
+            <button type="submit" className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-3 font-black border-2 border-yellow-700 flex items-center justify-center gap-2">
+              <Icon name="layers" size={16} /> CREATE {selectedMachines.length} TASKS
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // Import Receipt Modal - PDF IMPORT FEATURE
 const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
   const [step, setStep] = useState('upload'); // upload, review
@@ -3341,53 +3961,59 @@ const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
     setProcessing(true);
     
     try {
-      // Read PDF as text
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const text = event.target.result;
+      // Read PDF using PDF.js
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let fullText = '';
+      
+      // Extract text from all pages
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += pageText + '\n';
+      }
+      
+      // Parse receipt
+      const items = parseReceiptText(fullText);
+      
+      if (items.length === 0) {
+        alert('No items found in PDF. Please check the file format.\n\nExtracted text preview:\n' + fullText.substring(0, 500));
+        setProcessing(false);
+        return;
+      }
+      
+      // Match to existing parts
+      const matched = items.map(item => {
+        let bestMatch = null;
+        let bestScore = 0;
         
-        // Parse receipt
-        const items = parseReceiptText(text);
-        
-        if (items.length === 0) {
-          alert('No items found in PDF. Please check the file format.');
-          setProcessing(false);
-          return;
+        // Try to match by SKU first
+        const skuMatch = parts.find(p => p.sku === item.sku);
+        if (skuMatch) {
+          return { ...item, matchedPart: skuMatch, matchType: 'sku', action: 'update' };
         }
         
-        // Match to existing parts
-        const matched = items.map(item => {
-          let bestMatch = null;
-          let bestScore = 0;
-          
-          // Try to match by SKU first
-          const skuMatch = parts.find(p => p.sku === item.sku);
-          if (skuMatch) {
-            return { ...item, matchedPart: skuMatch, matchType: 'sku', action: 'update' };
+        // Try fuzzy name matching
+        parts.forEach(p => {
+          const score = fuzzyMatch(item.name, p.name);
+          if (score > bestScore && score > 60) {
+            bestScore = score;
+            bestMatch = p;
           }
-          
-          // Try fuzzy name matching
-          parts.forEach(p => {
-            const score = fuzzyMatch(item.name, p.name);
-            if (score > bestScore && score > 60) {
-              bestScore = score;
-              bestMatch = p;
-            }
-          });
-          
-          if (bestMatch) {
-            return { ...item, matchedPart: bestMatch, matchType: 'name', matchScore: bestScore, action: 'update' };
-          }
-          
-          return { ...item, matchedPart: null, action: 'new' };
         });
         
-        setExtractedItems(matched);
-        setStep('review');
-        setProcessing(false);
-      };
+        if (bestMatch) {
+          return { ...item, matchedPart: bestMatch, matchType: 'name', matchScore: bestScore, action: 'update' };
+        }
+        
+        return { ...item, matchedPart: null, action: 'new' };
+      });
       
-      reader.readAsText(file);
+      setExtractedItems(matched);
+      setStep('review');
+      setProcessing(false);
     } catch (err) {
       alert('Error reading PDF: ' + err.message);
       setProcessing(false);
