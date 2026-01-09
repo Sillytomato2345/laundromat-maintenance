@@ -278,6 +278,23 @@ const parseReceiptText = (text) => {
       }
     }
     
+    // Pattern 7: Very flexible - any line with SKU-like string, description, and price
+    // Catches oddly formatted lines
+    const pattern7 = line.match(/([A-Z0-9-]{4,})\s+(.+?)\s+(\d+)\s*\$?\s*(\d+\.?\d*)$/);
+    
+    if (pattern7 && !items.some(item => item.sku === pattern7[1])) { // Avoid duplicates
+      const sku = pattern7[1];
+      const name = pattern7[2].trim();
+      const qty = parseInt(pattern7[3]);
+      const price = parseFloat(pattern7[4]);
+      
+      if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal|Customer|Service|Payment|Order)/i)) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 7 match (flexible):', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
     // Log lines that might be items but didn't match
     if (line.match(/[A-Z0-9-]{4,}/) && line.match(/\$\s*\d+/) && line.length < 150 && line.length > 10) {
       console.log('⚠ Possible item but no match:', line);
@@ -1732,7 +1749,7 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
                   </div>
                   <div className="text-right">
                     <div className="text-teal-400 font-bold">${parseFloat(log.cost || 0).toFixed(2)}</div>
-                    <div className="text-zinc-500 text-xs">{new Date(log.date).toLocaleDateString()}</div>
+                    <div className="text-zinc-500 text-xs">{formatDateSlash(log.date)}</div>
                   </div>
                 </div>
               );
@@ -1961,7 +1978,7 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
               const usedParts = l.partsUsed ? l.partsUsed.split(',').filter(Boolean) : [];
               return (
                 <tr key={l.id} onClick={() => onView(l)} className="border-b border-zinc-700 hover:bg-zinc-700 cursor-pointer transition">
-                  <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-white font-bold">{formatDateSlash(l.date)}</td>
                   <td className="px-4 py-3 text-zinc-300">
                     {machine?.name || 'Unknown'}
                     {machine?.archived && <span className="ml-2 text-xs text-zinc-500">(ARCHIVED)</span>}
@@ -1969,8 +1986,8 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
                   <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
                   <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
                   <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
-                  <td className="px-4 py-3 text-right text-yellow-400 font-bold">${partsCost.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right text-yellow-400 font-bold">${l.warranty ? '0.00' : partsCost.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right text-teal-400 font-bold">${l.warranty ? '0.00' : parseFloat(l.cost || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-center">
                     {l.locked ? (
                       <Icon name="lock" size={16} className="inline text-red-400" title="Locked" />
@@ -2018,7 +2035,7 @@ const BuildingTab = ({ logs, onAdd, onView }) => (
         <tbody>
           {logs.sort((a,b) => new Date(b.date) - new Date(a.date)).map(l => (
             <tr key={l.id} onClick={() => onView(l)} className="border-b border-zinc-700 hover:bg-zinc-700 cursor-pointer transition">
-              <td className="px-4 py-3 text-white font-bold">{new Date(l.date).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-white font-bold">{formatDateSlash(l.date)}</td>
               <td className="px-4 py-3 text-zinc-300">{l.category}</td>
               <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
               <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
@@ -2719,7 +2736,7 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
               />
               <div>
                 <span className="text-white font-bold">Warranty Repair</span>
-                <p className="text-xs text-zinc-400">Exclude parts cost from equipment cost reports</p>
+                <p className="text-xs text-zinc-400">Exclude total repair cost from equipment cost reports</p>
               </div>
             </label>
           </div>
@@ -3374,7 +3391,7 @@ const RepairDetailModal = ({ log, machines, parts, onClose, onEdit }) => {
             </div>
             <div>
               <label className="text-xs font-black text-teal-400">DATE</label>
-              <p className="text-white font-bold">{new Date(log.date).toLocaleDateString()}</p>
+              <p className="text-white font-bold">{formatDateSlash(log.date)}</p>
             </div>
           </div>
           
@@ -3489,7 +3506,7 @@ const BuildingDetailModal = ({ log, onClose, onEdit }) => {
             </div>
             <div>
               <label className="text-xs font-black text-teal-400">DATE</label>
-              <p className="text-white font-bold">{new Date(log.date).toLocaleDateString()}</p>
+              <p className="text-white font-bold">{formatDateSlash(log.date)}</p>
             </div>
           </div>
           
