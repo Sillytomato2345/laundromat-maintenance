@@ -71,6 +71,21 @@ const Icon = ({ name, size = 20, className = '' }) => {
 };
 
 // Utilities
+// Format date for display (avoids timezone issues)
+const formatDate = (dateString) => {
+  if (!dateString) return '';
+  // Don't use Date constructor - it causes timezone shifts
+  // Input: "2026-01-09" Output: "2026-01-09"
+  return dateString;
+};
+
+// Format date with slashes for display
+const formatDateSlash = (dateString) => {
+  if (!dateString) return '';
+  const [year, month, day] = dateString.split('-');
+  return `${month}/${day}/${year}`;
+};
+
 const getTodayLocal = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -88,7 +103,7 @@ const calculateROI = (machine, logs) => {
   const age = calculateAge(machine.purchaseDate);
   if (!age) return null;
   
-  const machineLogs = logs.filter(l => l.machineId === machine.id);
+  const machineLogs = logs.filter(l => l.machineId === machine.id && !l.warranty);
   const totalCost = machineLogs.reduce((s, l) => s + parseFloat(l.cost || 0), 0);
   
   // For very young machines (< 1 year), use actual age or minimum 1 year to avoid inflated numbers
@@ -482,7 +497,7 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
@@ -499,8 +514,8 @@ const App = () => {
         archived: r[7] === 'true',
         purchasePrice: r[8] || ''
       })));
-      setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true' })));
-      setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true' })));
+      setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
+      setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
       setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
@@ -713,15 +728,16 @@ const App = () => {
       partsUsed: selectedParts.map(p => `${p.id}:${p.qty}`).join(','),
       notes: log.notes || '',
       files: fileIds,
-      locked: false
+      locked: false,
+      warranty: log.warranty || false
     };
 
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Equipment Logs!A:L',
+        range: 'Equipment Logs!A:M',
         valueInputOption: 'RAW',
-        resource: { values: [[newLog.id, newLog.locationId, newLog.machineId, newLog.date, newLog.issue, newLog.tech, newLog.cost, newLog.hours, newLog.partsUsed, newLog.notes, newLog.files, 'false']] },
+        resource: { values: [[newLog.id, newLog.locationId, newLog.machineId, newLog.date, newLog.issue, newLog.tech, newLog.cost, newLog.hours, newLog.partsUsed, newLog.notes, newLog.files, 'false', newLog.warranty ? 'true' : 'false']] },
       });
 
       for (const part of selectedParts) {
@@ -777,15 +793,16 @@ const App = () => {
       hours: log.hours,
       notes: log.notes || '',
       files: fileIds,
-      locked: false
+      locked: false,
+      warranty: log.warranty || false
     };
 
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Building Logs!A:K',
+        range: 'Building Logs!A:L',
         valueInputOption: 'RAW',
-        resource: { values: [[newLog.id, newLog.locationId, newLog.date, newLog.category, newLog.issue, newLog.tech, newLog.cost, newLog.hours, newLog.notes, newLog.files, 'false']] },
+        resource: { values: [[newLog.id, newLog.locationId, newLog.date, newLog.category, newLog.issue, newLog.tech, newLog.cost, newLog.hours, newLog.notes, newLog.files, 'false', newLog.warranty ? 'true' : 'false']] },
       });
       setBuildingLogs([...buildingLogs, newLog]);
       setModal(null);
@@ -1726,16 +1743,36 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
   );
 };
 
-// Equipment Tab with ARCHIVE feature
+// Equipment Tab with ARCHIVE feature and NESTED GROUPING
 const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive }) => {
   const [search, setSearch] = useState('');
+  const [expandedTypes, setExpandedTypes] = useState({});
+  const [expandedModels, setExpandedModels] = useState({});
   
   const filtered = machines.filter(m => 
     m.name?.toLowerCase().includes(search.toLowerCase()) ||
     m.model?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const getCost = (id) => logs.filter(l => l.machineId === id && new Date(l.date).getFullYear() === year).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
+  // Group equipment by Type → Model
+  const groupedEquipment = filtered.reduce((groups, machine) => {
+    const type = machine.type || 'Other';
+    if (!groups[type]) groups[type] = {};
+    const model = machine.model || 'Unknown Model';
+    if (!groups[type][model]) groups[type][model] = [];
+    groups[type][model].push(machine);
+    return groups;
+  }, {});
+
+  const toggleType = (type) => {
+    setExpandedTypes({...expandedTypes, [type]: !expandedTypes[type]});
+  };
+
+  const toggleModel = (typeModel) => {
+    setExpandedModels({...expandedModels, [typeModel]: !expandedModels[typeModel]});
+  };
+
+  const getCost = (id) => logs.filter(l => l.machineId === id && !l.warranty && new Date(l.date).getFullYear() === year).reduce((s, l) => s + parseFloat(l.cost || 0), 0);
   const getCount = (id) => logs.filter(l => l.machineId === id && new Date(l.date).getFullYear() === year).length;
 
   return (
@@ -1762,72 +1799,120 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(m => {
-          const roi = calculateROI(m, logs);
-          const age = calculateAge(m.purchaseDate);
-          const isArchived = m.archived;
+      
+      <div className="space-y-4">
+        {Object.entries(groupedEquipment).map(([type, models]) => {
+          const typeTotal = Object.values(models).flat().length;
+          const isTypeExpanded = expandedTypes[type];
+          
           return (
-            <div key={m.id} className={`bg-zinc-800 border-2 p-4 hover:border-teal-500 transition ${isArchived ? 'border-zinc-600 opacity-60' : 'border-zinc-700'}`}>
-              {isArchived && (
-                <div className="bg-zinc-700 border border-zinc-600 px-2 py-1 text-xs font-black text-zinc-400 mb-2 inline-block">
-                  ARCHIVED
+            <div key={type} className="bg-zinc-900 border-2 border-zinc-700">
+              <button 
+                onClick={() => toggleType(type)}
+                className="w-full flex items-center justify-between p-4 hover:bg-zinc-800 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <Icon name={isTypeExpanded ? "chevron-down" : "chevron-right"} size={20} className="text-teal-400" />
+                  <h3 className="text-xl font-black text-white">{type}</h3>
+                  <span className="text-zinc-500 font-bold">({typeTotal})</span>
+                </div>
+              </button>
+              
+              {isTypeExpanded && (
+                <div className="px-4 pb-4 space-y-3">
+                  {Object.entries(models).map(([model, machinesList]) => {
+                    const isModelExpanded = expandedModels[`${type}-${model}`];
+                    
+                    return (
+                      <div key={model} className="ml-6 bg-zinc-800 border border-zinc-700">
+                        <button
+                          onClick={() => toggleModel(`${type}-${model}`)}
+                          className="w-full flex items-center justify-between p-3 hover:bg-zinc-700 transition"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon name={isModelExpanded ? "chevron-down" : "chevron-right"} size={16} className="text-zinc-500" />
+                            <h4 className="text-lg font-bold text-zinc-300">{model}</h4>
+                            <span className="text-zinc-600 text-sm">({machinesList.length})</span>
+                          </div>
+                        </button>
+                        
+                        {isModelExpanded && (
+                          <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {machinesList.map(m => {
+                              const roi = calculateROI(m, logs);
+                              const age = calculateAge(m.purchaseDate);
+                              const isArchived = m.archived;
+                              
+                              return (
+                                <div key={m.id} className={`bg-zinc-900 border-2 p-4 hover:border-teal-500 transition ${isArchived ? 'border-zinc-600 opacity-60' : 'border-zinc-700'}`}>
+                                  {isArchived && (
+                                    <div className="bg-zinc-700 border border-zinc-600 px-2 py-1 text-xs font-black text-zinc-400 mb-2 inline-block">
+                                      ARCHIVED
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between mb-3">
+                                    <div>
+                                      <h3 className="text-lg font-black text-white">{m.name}</h3>
+                                      <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => onEdit(m)} className="text-teal-400 hover:text-teal-300">
+                                        <Icon name="edit" size={16} />
+                                      </button>
+                                      {!isArchived && (
+                                        <button onClick={() => onArchive(m.id)} className="text-yellow-400 hover:text-yellow-300" title="Archive">
+                                          <Icon name="archive" size={16} />
+                                        </button>
+                                      )}
+                                      {isArchived && (
+                                        <button onClick={() => onUnarchive(m.id)} className="text-green-400 hover:text-green-300" title="Unarchive">
+                                          <Icon name="wrench" size={16} />
+                                        </button>
+                                      )}
+                                      <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-300">
+                                        <Icon name="trash" size={16} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1 text-sm mb-3">
+                                    {age && <p className="text-zinc-400"><span className="font-bold">AGE:</span> {age.toFixed(1)} years</p>}
+                                    {roi && !isArchived && (
+                                      <div>
+                                        <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
+                                          {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
+                                        </p>
+                                        <p className="text-xs text-zinc-500">
+                                          Replacement: ${roi.replacementCost.toFixed(0)}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
+                                    <div>
+                                      <div className="text-xs text-zinc-500 font-bold">REPAIRS</div>
+                                      <div className="text-xl font-black text-teal-400">{getCount(m.id)}</div>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="text-xs text-zinc-500 font-bold">COST</div>
+                                      <div className="text-xl font-black text-teal-400">${getCost(m.id).toFixed(2)}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <div className="flex justify-between mb-3">
-                <div>
-                  <h3 className="text-lg font-black text-white">{m.name}</h3>
-                  <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => onEdit(m)} className="text-teal-400 hover:text-teal-300">
-                    <Icon name="edit" size={16} />
-                  </button>
-                  {!isArchived && (
-                    <button onClick={() => onArchive(m.id)} className="text-yellow-400 hover:text-yellow-300" title="Archive">
-                      <Icon name="archive" size={16} />
-                    </button>
-                  )}
-                  {isArchived && (
-                    <button onClick={() => onUnarchive(m.id)} className="text-green-400 hover:text-green-300" title="Unarchive">
-                      <Icon name="wrench" size={16} />
-                    </button>
-                  )}
-                  <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-300">
-                    <Icon name="trash" size={16} />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1 text-sm mb-3">
-                <p className="text-zinc-400"><span className="font-bold">MODEL:</span> {m.model}</p>
-                <p className="text-zinc-400"><span className="font-bold">TYPE:</span> {m.type}</p>
-                {age && <p className="text-zinc-400"><span className="font-bold">AGE:</span> {age.toFixed(1)} years</p>}
-                {roi && !isArchived && (
-                  <div>
-                    <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
-                      {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      Replacement: ${roi.replacementCost.toFixed(0)}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="border-t-2 border-zinc-700 pt-3 flex justify-between">
-                <div>
-                  <div className="text-xs text-zinc-500 font-bold">REPAIRS</div>
-                  <div className="text-xl font-black text-teal-400">{getCount(m.id)}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-zinc-500 font-bold">COST</div>
-                  <div className="text-xl font-black text-teal-400">${getCost(m.id).toFixed(2)}</div>
-                </div>
-              </div>
             </div>
           );
         })}
       </div>
-      {filtered.length === 0 && (
+      
+      {Object.keys(groupedEquipment).length === 0 && (
         <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
           <p className="text-zinc-500 font-bold">NO MACHINES FOUND</p>
         </div>
@@ -2484,6 +2569,7 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
     laborCost: '',
     hours: '0',
     notes: '',
+    warranty: false,
   });
   const [selectedParts, setSelectedParts] = useState([]);
   const [photoFiles, setPhotoFiles] = useState([]);
@@ -2622,6 +2708,22 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
               <input type="number" step="0.01" required value={form.laborCost} onChange={e => setForm({...form, laborCost: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold outline-none focus:border-teal-500" />
             </div>
           </div>
+          
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={form.warranty} 
+                onChange={e => setForm({...form, warranty: e.target.checked})} 
+                className="w-5 h-5 accent-teal-500"
+              />
+              <div>
+                <span className="text-white font-bold">Warranty Repair</span>
+                <p className="text-xs text-zinc-400">Exclude parts cost from equipment cost reports</p>
+              </div>
+            </label>
+          </div>
+          
           <div className="bg-zinc-900 border-2 border-teal-600 p-3">
             <div className="text-sm text-zinc-400 mb-1">TOTAL REPAIR COST:</div>
             <div className="text-2xl font-black text-teal-400">${totalCost.toFixed(2)}</div>
@@ -3257,6 +3359,7 @@ const RepairDetailModal = ({ log, machines, parts, onClose, onEdit }) => {
           <h3 className="text-2xl font-black text-teal-400 flex items-center gap-2">
             REPAIR DETAILS
             {log.locked && <Icon name="lock" size={20} className="text-red-400" title="Locked" />}
+            {log.warranty && <span className="px-2 py-1 bg-green-900 text-green-300 text-xs font-bold rounded">WARRANTY</span>}
           </h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-white">
             <Icon name="x" size={24} />
@@ -3371,6 +3474,7 @@ const BuildingDetailModal = ({ log, onClose, onEdit }) => {
           <h3 className="text-2xl font-black text-teal-400 flex items-center gap-2">
             BUILDING MAINTENANCE DETAILS
             {log.locked && <Icon name="lock" size={20} className="text-red-400" title="Locked" />}
+            {log.warranty && <span className="px-2 py-1 bg-green-900 text-green-300 text-xs font-bold rounded">WARRANTY</span>}
           </h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-white">
             <Icon name="x" size={24} />
