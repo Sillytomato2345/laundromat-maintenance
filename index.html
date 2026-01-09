@@ -171,18 +171,38 @@ const parseReceiptText = (text) => {
       
       const skuMatch = line.match(/^SKU\s*:\s*([A-Z0-9-]+)$/i);
       const sku = skuMatch[1];
-      const name = lines[i - 1].trim();
+      const prevLine = lines[i - 1].trim();
       const nextLine = lines[i + 1];
       
-      console.log(`  Name (line ${i-1}): "${name}"`);
+      console.log(`  Prev line (line ${i-1}): "${prevLine}"`);
       console.log(`  SKU: "${sku}"`);
       console.log(`  Next line (line ${i+1}): "${nextLine}"`);
       
-      // Check if next line has qty and price
+      // Pattern 0.5: Name + Qty + Price on PREVIOUS line
+      // "Hose Washers 1  $8.95"
+      const prevLineMatch = prevLine.match(/^(.+?)\s+(\d+)\s+\$\s*(\d+\.?\d*)$/);
+      if (prevLineMatch) {
+        const name = prevLineMatch[1].trim();
+        const qty = parseInt(prevLineMatch[2]);
+        const price = parseFloat(prevLineMatch[3]);
+        
+        console.log(`  ✓ Pattern 0.5: Name+Qty+Price on prev line: name="${name}", qty=${qty}, price=${price}`);
+        
+        if (name && name.length > 2 && price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
+          items.push({ sku, name, qty, price });
+          console.log('✓✓ Pattern 0.5 match (name+qty+price on prev line):', { sku, name, qty, price });
+          continue;
+        } else {
+          console.log(`  ✗ Pattern 0.5 rejected: name.length=${name.length}, price=${price}, filter=${!!name.match(/^(Order|Payment|Shipping|Items|Thank)/i)}`);
+        }
+      }
+      
+      // Pattern 0: Qty + Price on NEXT line
       const qtyPriceMatch = nextLine.match(/^(\d+)\s+\$\s*(\d+\.?\d*)$/);
       
       if (qtyPriceMatch) {
-        console.log(`  ✓ Qty/Price matched: qty=${qtyPriceMatch[1]}, price=${qtyPriceMatch[2]}`);
+        const name = prevLine;
+        console.log(`  ✓ Qty/Price matched on next line: qty=${qtyPriceMatch[1]}, price=${qtyPriceMatch[2]}`);
         
         if (name && name.length > 2) {
           const qty = parseInt(qtyPriceMatch[1]);
