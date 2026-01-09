@@ -2697,9 +2697,7 @@ const PartModal = ({ part, vendors, onClose, onSave }) => {
 const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, onDelete, onAddBulk, onShowHistory }) => {
   const today = new Date();
   const [filter, setFilter] = useState('dueSoon'); // 'overdue', 'dueSoon', 'all'
-  const [expandedBulk, setExpanded
-
-Bulk] = useState({});
+  const [expandedBulk, setExpandedBulk] = useState({});
   
   // Filter tasks based on due date
   const getFilteredTasks = (tasksList) => {
