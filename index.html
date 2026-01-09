@@ -145,7 +145,11 @@ const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   
   console.log('Parser processing', lines.length, 'lines');
-  console.log('First 20 lines:', lines.slice(0, 20)); // DEBUG
+  console.log('First 30 lines:');
+  lines.slice(0, 30).forEach((l, i) => console.log(`  ${i}: "${l}"`));
+  console.log('\nLines 30-50 (item section):');
+  lines.slice(30, 50).forEach((l, i) => console.log(`  ${i+30}: "${l}"`));
+  console.log(''); // blank line
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -163,24 +167,43 @@ const parseReceiptText = (text) => {
     // Line i: "SKU : GSW300"
     // Line i+1: "1 $8.95"
     if (line.match(/^SKU\s*:\s*([A-Z0-9-]+)$/i) && i > 0 && i + 1 < lines.length) {
+      console.log(`🔍 Pattern 0 triggered at line ${i}: "${line}"`);
+      
       const skuMatch = line.match(/^SKU\s*:\s*([A-Z0-9-]+)$/i);
       const sku = skuMatch[1];
       const name = lines[i - 1].trim();
       const nextLine = lines[i + 1];
       
+      console.log(`  Name (line ${i-1}): "${name}"`);
+      console.log(`  SKU: "${sku}"`);
+      console.log(`  Next line (line ${i+1}): "${nextLine}"`);
+      
       // Check if next line has qty and price
       const qtyPriceMatch = nextLine.match(/^(\d+)\s+\$\s*(\d+\.?\d*)$/);
       
-      if (qtyPriceMatch && name && name.length > 2) {
-        const qty = parseInt(qtyPriceMatch[1]);
-        const price = parseFloat(qtyPriceMatch[2]);
+      if (qtyPriceMatch) {
+        console.log(`  ✓ Qty/Price matched: qty=${qtyPriceMatch[1]}, price=${qtyPriceMatch[2]}`);
         
-        if (price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
-          items.push({ sku, name, qty, price });
-          console.log('✓ Pattern 0 match (multi-line):', { sku, name, qty, price });
-          i += 1; // Skip next line since we processed it
-          continue;
+        if (name && name.length > 2) {
+          const qty = parseInt(qtyPriceMatch[1]);
+          const price = parseFloat(qtyPriceMatch[2]);
+          
+          console.log(`  Checking: price=${price}, name.length=${name.length}`);
+          console.log(`  Name filter test:`, name.match(/^(Order|Payment|Shipping|Items|Thank)/i));
+          
+          if (price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
+            items.push({ sku, name, qty, price });
+            console.log('✓ Pattern 0 match (multi-line):', { sku, name, qty, price });
+            i += 1; // Skip next line since we processed it
+            continue;
+          } else {
+            console.log(`  ✗ Rejected: price=${price}, filter matched=${!!name.match(/^(Order|Payment|Shipping|Items|Thank)/i)}`);
+          }
+        } else {
+          console.log(`  ✗ Name too short or empty: length=${name.length}`);
         }
+      } else {
+        console.log(`  ✗ Next line didn't match qty/price pattern`);
       }
     }
     
