@@ -129,68 +129,52 @@ const parseReceiptText = (text) => {
   const items = [];
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   
-  // Pattern for Laundry Owners format
-  // Look for lines with "Qty Product Price Tax"
-  let inProductSection = false;
+  console.log('Parser processing', lines.length, 'lines');
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Start of product section
-    if (line.includes('Qty Product Price Tax') || line.includes('SKU :')) {
-      inProductSection = true;
-      continue;
-    }
+    // Gold Coin pattern: "9576-203-002 Dexter Dryer High Limit 1 $12.96"
+    // Pattern: SKU Description Qty $Price (all on one line)
+    const goldCoinMatch = line.match(/^([A-Z0-9-]{6,})\s+(.+?)\s+(\d+)\s+\$(\d+\.?\d*)$/);
     
-    // Pattern 1: Line with SKU format "SKU : 9576-203-002"
-    if (line.match(/SKU\s*:\s*([A-Z0-9-]+)/i)) {
-      const skuMatch = line.match(/SKU\s*:\s*([A-Z0-9-]+)/i);
-      const sku = skuMatch[1];
-      
-      // Look backwards for name (previous line)
-      let name = i > 0 ? lines[i - 1] : '';
-      
-      // Look forwards for qty and price
-      let qty = 1;
-      let price = 0;
-      
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
-        const qtyMatch = nextLine.match(/^(\d+)\s/);
-        const priceMatch = nextLine.match(/\$\s*(\d+\.?\d*)/);
-        
-        if (qtyMatch) qty = parseInt(qtyMatch[1]);
-        if (priceMatch) price = parseFloat(priceMatch[1]);
-      }
+    if (goldCoinMatch) {
+      const sku = goldCoinMatch[1];
+      const name = goldCoinMatch[2].trim();
+      const qty = parseInt(goldCoinMatch[3]);
+      const price = parseFloat(goldCoinMatch[4]);
       
       if (name && price > 0) {
-        // Clean name - remove SKU if duplicated
-        name = name.replace(sku, '').trim();
         items.push({ sku, name, qty, price });
+        console.log('Found item:', { sku, name, qty, price });
       }
       continue;
     }
     
-    // Pattern 2: Laundry Owners inline format
-    // "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
-    const inlineMatch = line.match(/^(\d+)\s+([A-Z0-9-]+)\s+(.+?)\s+\$(\d+\.?\d*)/);
-    if (inlineMatch && inProductSection) {
-      const qty = parseInt(inlineMatch[1]);
-      const sku = inlineMatch[2];
-      let name = inlineMatch[3];
-      const price = parseFloat(inlineMatch[4]);
+    // Laundry Owners pattern: "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
+    // Pattern: Qty SKU Description $Price1 $Price2
+    const laundryOwnersMatch = line.match(/^(\d+)\s+([A-Z0-9-]{6,})\s+(.+?)\s+\$(\d+\.?\d*)/);
+    
+    if (laundryOwnersMatch) {
+      const qty = parseInt(laundryOwnersMatch[1]);
+      const sku = laundryOwnersMatch[2];
+      let name = laundryOwnersMatch[3];
+      const price = parseFloat(laundryOwnersMatch[4]);
       
-      // Clean name - remove duplicate SKU
+      // Clean name - remove duplicate SKU if present
       name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
-      // Remove trailing price if present
+      // Remove trailing prices
       name = name.replace(/\s+\$\d+\.?\d*\s*$/, '').trim();
       
       if (name && price > 0) {
         items.push({ sku, name, qty, price });
+        console.log('Found item:', { sku, name, qty, price });
       }
+      continue;
     }
   }
   
+  console.log('Parser found', items.length, 'total items');
   return items;
 };
 
@@ -403,13 +387,23 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
       
       setLocations(loc.map(r => ({ id: r[0], name: r[1], address: r[2] || '' })));
-      setMachines(mach.map(r => ({ id: r[0], locationId: r[1], name: r[2], model: r[3], serial: r[4], type: r[5], purchaseDate: r[6] || '', archived: r[7] === 'true' })));
+      setMachines(mach.map(r => ({ 
+        id: r[0], 
+        locationId: r[1], 
+        name: r[2], 
+        model: r[3], 
+        serial: r[4], 
+        type: r[5], 
+        purchaseDate: r[6] || '', 
+        archived: r[7] === 'true',
+        purchasePrice: r[8] || ''
+      })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true' })));
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
@@ -546,9 +540,9 @@ const App = () => {
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Machines!A:H',
+        range: 'Machines!A:I',
         valueInputOption: 'RAW',
-        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false']] },
+        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false', newMachine.purchasePrice || '']] },
       });
       setMachines([...machines, newMachine]);
       setModal(null);
@@ -565,9 +559,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Machines!A${rowNum}:H${rowNum}`,
+        range: `Machines!A${rowNum}:I${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false']] },
+        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false', updated.purchasePrice || '']] },
       });
       
       setMachines(machines.map(m => m.id === id ? updated : m));
@@ -2308,7 +2302,14 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
 
 // Machine Modal (from Sprint 1)
 const MachineModal = ({ machine, onClose, onSave }) => {
-  const [form, setForm] = useState(machine || { name: '', model: '', serial: '', type: 'Washer', purchaseDate: '' });
+  const [form, setForm] = useState(machine || { 
+    name: '', 
+    model: '', 
+    serial: '', 
+    type: 'Washer', 
+    purchaseDate: '',
+    purchasePrice: ''
+  });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -2350,6 +2351,21 @@ const MachineModal = ({ machine, onClose, onSave }) => {
           <div>
             <label className="block text-xs font-black text-teal-400 mb-2">PURCHASE DATE (optional)</label>
             <input type="date" value={form.purchaseDate} onChange={e => setForm({...form, purchaseDate: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">PURCHASE PRICE (optional)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
+              <input 
+                type="number" 
+                step="0.01"
+                value={form.purchasePrice} 
+                onChange={e => setForm({...form, purchasePrice: e.target.value})} 
+                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white pl-8 pr-3 py-2 font-bold outline-none focus:border-teal-500" 
+                placeholder="e.g., 1500.00"
+              />
+            </div>
+            <p className="text-xs text-zinc-500 mt-1">Used for accurate ROI calculations</p>
           </div>
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CANCEL</button>
@@ -2845,7 +2861,7 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
       const total = task.children?.length || 0;
       const isExpanded = expandedBulk[task.id];
       
-      console.log('Bulk task:', task.id, 'Children:', task.children, 'isExpanded:', isExpanded); // DEBUG
+      console.log('Bulk task:', task.id, 'equipmentType:', task.equipmentType, 'Children:', task.children, 'isExpanded:', isExpanded); // DEBUG
       
       return (
         <div key={task.id} className={`bg-zinc-800 border-2 ${isOverdue ? 'border-red-600' : daysTilDue <= 14 ? 'border-yellow-600' : 'border-zinc-700'}`}>
@@ -2857,7 +2873,9 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
                     <Icon name={isExpanded ? "chevron-down" : "chevron-right"} size={20} />
                   </button>
                   <div>
-                    <h3 className="text-lg font-black text-white">{task.task} (All {task.equipmentType}s)</h3>
+                    <h3 className="text-lg font-black text-white">
+                      {task.task} {task.equipmentType ? `(All ${task.equipmentType}s)` : '(Bulk Task)'}
+                    </h3>
                     <p className="text-xs text-zinc-400 font-bold">Progress: {completed}/{total} complete</p>
                   </div>
                 </div>
