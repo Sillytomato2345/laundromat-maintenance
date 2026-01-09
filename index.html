@@ -138,14 +138,15 @@ const parseReceiptText = (text) => {
     // Skip header lines
     if (line.includes('ORDER INVOICE') || line.includes('Sold to') || 
         line.includes('Ship to') || line.includes('Payment Method') || 
-        line.includes('Qty Product Price Tax')) {
+        line.includes('Qty Product Price Tax') || line.includes('Customer Service') ||
+        line.includes('Subtotal') || line.includes('Tax') || line.includes('Total')) {
       continue;
     }
     
-    // Pattern 1: Gold Coin - SKU at start, price at end
-    // "9576-203-002 Dexter Dryer High Limit 1 $12.96"
-    // Allow for flexible spacing and optional tax
-    const pattern1 = line.match(/^([A-Z0-9-]{6,20})\s+(.+?)\s+(\d+)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
+    // Pattern 1: Gold Coin - Most flexible
+    // SKU can be: 9576-203-002, 123456, AB-1234, etc.
+    // Format: "SKU Description Qty $Price"
+    const pattern1 = line.match(/^([A-Z0-9][A-Z0-9-]{3,})\s+(.+?)\s+(\d+)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
     
     if (pattern1) {
       const sku = pattern1[1];
@@ -153,16 +154,17 @@ const parseReceiptText = (text) => {
       const qty = parseInt(pattern1[3]);
       const price = parseFloat(pattern1[4]);
       
-      if (name && price > 0 && name.length > 3) {
+      if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal)/i)) {
         items.push({ sku, name, qty, price });
         console.log('✓ Pattern 1 match:', { sku, name, qty, price });
         continue;
       }
     }
     
-    // Pattern 2: Laundry Owners - Qty at start
-    // "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
-    const pattern2 = line.match(/^(\d+)\s+([A-Z0-9-]{6,20})\s+(.+?)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
+    // Pattern 2: Laundry Owners - Qty first, then SKU
+    // Format: "1 9376-331-001 Description $485.12 $0.00"
+    // More flexible - SKU can be various formats
+    const pattern2 = line.match(/^(\d+)\s+([A-Z0-9][A-Z0-9-]{3,})\s+(.+?)\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
     
     if (pattern2) {
       const qty = parseInt(pattern2[1]);
@@ -170,19 +172,21 @@ const parseReceiptText = (text) => {
       let name = pattern2[3].trim();
       const price = parseFloat(pattern2[4]);
       
-      // Clean name - remove duplicate SKU
+      // Clean name - remove duplicate SKU if present
       name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
+      // Remove "Replaces Part" notes
+      name = name.replace(/\s*\|\s*Replaces Part.+$/, '').trim();
       
-      if (name && price > 0 && name.length > 3) {
+      if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal)/i)) {
         items.push({ sku, name, qty, price });
         console.log('✓ Pattern 2 match:', { sku, name, qty, price });
         continue;
       }
     }
     
-    // Pattern 3: Any line ending with qty and price
-    // More flexible catch-all
-    const pattern3 = line.match(/^([A-Z0-9-]{6,20})\s+(.+?)\s+(\d+)\s+\$?\s*(\d+\.\d{2})$/);
+    // Pattern 3: Catch items with just numbers as SKU
+    // Some parts might be "1234567 Description 2 $10.00"
+    const pattern3 = line.match(/^(\d{4,10})\s+(.+?)\s+(\d+)\s+\$?\s*(\d+\.\d{2})$/);
     
     if (pattern3) {
       const sku = pattern3[1];
@@ -190,15 +194,34 @@ const parseReceiptText = (text) => {
       const qty = parseInt(pattern3[3]);
       const price = parseFloat(pattern3[4]);
       
-      if (name && price > 0 && name.length > 3 && !name.includes('Subtotal') && !name.includes('Total')) {
+      if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal)/i)) {
         items.push({ sku, name, qty, price });
         console.log('✓ Pattern 3 match:', { sku, name, qty, price });
         continue;
       }
     }
     
+    // Pattern 4: Qty first with numeric SKU
+    // "1 12345678 Description $100.00"
+    const pattern4 = line.match(/^(\d+)\s+(\d{5,10})\s+(.+?)\s+\$\s*(\d+(?:\.\d{2})?)$/);
+    
+    if (pattern4) {
+      const qty = parseInt(pattern4[1]);
+      const sku = pattern4[2];
+      let name = pattern4[3].trim();
+      const price = parseFloat(pattern4[4]);
+      
+      name = name.replace(/\s*\|\s*Replaces Part.+$/, '').trim();
+      
+      if (name && price > 0 && name.length > 3) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 4 match:', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
     // Log lines that might be items but didn't match
-    if (line.match(/[A-Z0-9-]{6,}/) && line.match(/\$\s*\d+/) && line.length < 150) {
+    if (line.match(/[A-Z0-9-]{4,}/) && line.match(/\$\s*\d+/) && line.length < 150 && line.length > 10) {
       console.log('⚠ Possible item but no match:', line);
     }
   }
