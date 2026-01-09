@@ -220,6 +220,49 @@ const parseReceiptText = (text) => {
       }
     }
     
+    // Pattern 5: Laundry Owners with duplicate SKU
+    // "9376-331-001 9376-331-001 - Motor St30 Mara - Dexter | $485.12 $0.00"
+    // Format: SKU SKU - Description | $Price $Tax
+    const pattern5 = line.match(/^([A-Z0-9][A-Z0-9-]{3,})\s+\1\s+-\s+(.+?)\s+\|\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
+    
+    if (pattern5) {
+      const sku = pattern5[1];
+      let name = pattern5[2].trim();
+      const price = parseFloat(pattern5[3]);
+      const qty = 1; // Default to 1 if not specified
+      
+      // Clean name - remove any remaining SKU references
+      name = name.replace(new RegExp(sku, 'g'), '').trim();
+      name = name.replace(/^-\s*/, '').trim();
+      
+      if (name && price > 0 && name.length > 3) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 5 match (Laundry Owners duplicate SKU):', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
+    // Pattern 6: Laundry Owners with quantity prefix
+    // "1 9376-331-001 9376-331-001 - Motor St30 Mara - Dexter | $485.12 $0.00"
+    const pattern6 = line.match(/^(\d+)\s+([A-Z0-9][A-Z0-9-]{3,})\s+\2\s+-\s+(.+?)\s+\|\s+\$\s*(\d+(?:\.\d{2})?)(?:\s+\$\s*\d+(?:\.\d{2})?)?$/);
+    
+    if (pattern6) {
+      const qty = parseInt(pattern6[1]);
+      const sku = pattern6[2];
+      let name = pattern6[3].trim();
+      const price = parseFloat(pattern6[4]);
+      
+      // Clean name
+      name = name.replace(new RegExp(sku, 'g'), '').trim();
+      name = name.replace(/^-\s*/, '').trim();
+      
+      if (name && price > 0 && name.length > 3) {
+        items.push({ sku, name, qty, price });
+        console.log('✓ Pattern 6 match (Laundry Owners with qty):', { sku, name, qty, price });
+        continue;
+      }
+    }
+    
     // Log lines that might be items but didn't match
     if (line.match(/[A-Z0-9-]{4,}/) && line.match(/\$\s*\d+/) && line.length < 150 && line.length > 10) {
       console.log('⚠ Possible item but no match:', line);
