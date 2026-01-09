@@ -40,7 +40,7 @@ const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googlea
 const CONFIG_FILE_NAME = 'laundromat_pro_config.json';
 
 // Icons
-const Icon = ({ name, size = 20 }) => {
+const Icon = ({ name, size = 20, className = '' }) => {
   const paths = {
     dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
     plus: "M12 5v14m-7-7h14", wrench: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
@@ -61,8 +61,13 @@ const Icon = ({ name, size = 20 }) => {
     shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
     clock: "M12 6v6l4 2M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z",
     check: "M20 6L9 17l-5-5",
+    'chevron-right': "M9 18l6-6-6-6",
+    'chevron-down': "M6 9l6 6 6-6",
+    circle: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z",
+    'check-circle': "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3",
+    layers: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
   };
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
+  return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 };
 
 // Utilities
@@ -119,70 +124,71 @@ const exportToCSV = (data, filename) => {
   URL.revokeObjectURL(url);
 };
 
-// PDF Receipt Parser - IMPROVED
+// PDF Receipt Parser - FIXED FOR ACTUAL FORMAT
 const parseReceiptText = (text) => {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const items = [];
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   
-  let i = 0;
-  while (i < lines.length) {
+  // Pattern for Laundry Owners format
+  // Look for lines with "Qty Product Price Tax"
+  let inProductSection = false;
+  
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Pattern 1: Gold Coin format
-    // Line 1: "9576-203-002 Dexter Dryer High Limit"
-    // Line 2: "SKU : 9576-203-002"
-    // Line 3: "2 $22.80"
-    
-    if (i + 2 < lines.length && lines[i + 1].toLowerCase().includes('sku')) {
-      const nameLine = line;
-      const skuLine = lines[i + 1];
-      const qtyPriceLine = lines[i + 2];
-      
-      // Extract SKU from "SKU : 9576-203-002"
-      const skuMatch = skuLine.match(/sku\s*:?\s*([A-Z0-9-]+)/i);
-      if (skuMatch) {
-        const sku = skuMatch[1];
-        
-        // Extract name (remove SKU if it's at start of name line)
-        let name = nameLine.replace(/^[A-Z0-9-]+\s*/, '').trim();
-        
-        // Extract qty and price from "2 $22.80"
-        const qtyMatch = qtyPriceLine.match(/^(\d+)\s/);
-        const priceMatch = qtyPriceLine.match(/\$\s*(\d+\.?\d*)/);
-        
-        if (name && priceMatch) {
-          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-          const price = parseFloat(priceMatch[1]);
-          
-          items.push({ sku, name, qty, price });
-          i += 3; // Skip these 3 lines
-          continue;
-        }
-      }
+    // Start of product section
+    if (line.includes('Qty Product Price Tax') || line.includes('SKU :')) {
+      inProductSection = true;
+      continue;
     }
     
-    // Pattern 2: Laundry Owners format
-    // Single line: "1 9376-331-001 9376-331-001 - Motor St30 Mara - Dexter | Replaces Part 9376-330-001 $485.12 $0.00"
+    // Pattern 1: Line with SKU format "SKU : 9576-203-002"
+    if (line.match(/SKU\s*:\s*([A-Z0-9-]+)/i)) {
+      const skuMatch = line.match(/SKU\s*:\s*([A-Z0-9-]+)/i);
+      const sku = skuMatch[1];
+      
+      // Look backwards for name (previous line)
+      let name = i > 0 ? lines[i - 1] : '';
+      
+      // Look forwards for qty and price
+      let qty = 1;
+      let price = 0;
+      
+      if (i + 1 < lines.length) {
+        const nextLine = lines[i + 1];
+        const qtyMatch = nextLine.match(/^(\d+)\s/);
+        const priceMatch = nextLine.match(/\$\s*(\d+\.?\d*)/);
+        
+        if (qtyMatch) qty = parseInt(qtyMatch[1]);
+        if (priceMatch) price = parseFloat(priceMatch[1]);
+      }
+      
+      if (name && price > 0) {
+        // Clean name - remove SKU if duplicated
+        name = name.replace(sku, '').trim();
+        items.push({ sku, name, qty, price });
+      }
+      continue;
+    }
     
-    const qtySkuNamePrice = line.match(/^(\d+)\s+([A-Z0-9-]+)\s+(.+?)\s+\$(\d+\.?\d*)/);
-    if (qtySkuNamePrice) {
-      const qty = parseInt(qtySkuNamePrice[1]);
-      const sku = qtySkuNamePrice[2];
-      let name = qtySkuNamePrice[3];
-      const price = parseFloat(qtySkuNamePrice[4]);
+    // Pattern 2: Laundry Owners inline format
+    // "1 9376-331-001 Motor St30 Mara - Dexter $485.12 $0.00"
+    const inlineMatch = line.match(/^(\d+)\s+([A-Z0-9-]+)\s+(.+?)\s+\$(\d+\.?\d*)/);
+    if (inlineMatch && inProductSection) {
+      const qty = parseInt(inlineMatch[1]);
+      const sku = inlineMatch[2];
+      let name = inlineMatch[3];
+      const price = parseFloat(inlineMatch[4]);
       
-      // Clean name - remove duplicate SKU at start
+      // Clean name - remove duplicate SKU
       name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
-      
-      // Remove tax amount at end if present
+      // Remove trailing price if present
       name = name.replace(/\s+\$\d+\.?\d*\s*$/, '').trim();
       
       if (name && price > 0) {
         items.push({ sku, name, qty, price });
       }
     }
-    
-    i++;
   }
   
   return items;
@@ -397,7 +403,7 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:K', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:H', 'Equipment Logs!A2:L', 'Building Logs!A2:K', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
@@ -422,6 +428,18 @@ const App = () => {
           customUnit = parts[2] || 'days';
         }
         
+        // Parse children with error handling
+        let children = [];
+        if (r[10]) {
+          try {
+            children = JSON.parse(r[10]);
+            console.log('Parsed children for task', r[0], ':', children);
+          } catch (e) {
+            console.error('Failed to parse children for task', r[0], ':', r[10], e);
+            children = [];
+          }
+        }
+        
         return { 
           id: r[0], 
           machineId: r[1] || '', 
@@ -435,7 +453,8 @@ const App = () => {
           active: r[7] !== 'false',
           type: r[8] || 'Equipment',
           location: r[9] || '',
-          children: r[10] ? JSON.parse(r[10]) : []
+          children,
+          equipmentType: r[11] || '' // Add equipmentType from column L
         };
       }));
       setWarranties(warr.map(r => ({ id: r[0], machineId: r[1], startDate: r[2], endDate: r[3], provider: r[4], coverage: r[5] || '', notes: r[6] || '' })));
@@ -924,9 +943,22 @@ const App = () => {
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Scheduled Maintenance!A:K',
+        range: 'Scheduled Maintenance!A:L',
         valueInputOption: 'RAW',
-        resource: { values: [[newTask.id, newTask.machineId || '', newTask.task, frequencyValue, newTask.lastCompleted || '', newTask.nextDue, newTask.notes || '', 'true', newTask.type || 'Equipment', newTask.location || '', JSON.stringify(newTask.children || [])]] },
+        resource: { values: [[
+          newTask.id,                                 // A
+          newTask.machineId || '',                    // B
+          newTask.task,                               // C
+          frequencyValue,                             // D
+          newTask.lastCompleted || '',                // E
+          newTask.nextDue,                            // F
+          newTask.notes || '',                        // G
+          'true',                                     // H
+          newTask.type || 'Equipment',                // I
+          newTask.location || '',                     // J
+          JSON.stringify(newTask.children || []),     // K
+          newTask.equipmentType || ''                 // L
+        ]] },
       });
       const newTasks = [...scheduledTasks, newTask];
       setScheduledTasks(newTasks);
@@ -945,9 +977,22 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Scheduled Maintenance!A${rowNum}:K${rowNum}`,
+        range: `Scheduled Maintenance!A${rowNum}:L${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.machineId || '', updated.task, updated.frequency, updated.lastCompleted || '', updated.nextDue, updated.notes || '', updated.active ? 'true' : 'false', updated.type || 'Equipment', updated.location || '', JSON.stringify(updated.children || [])]] },
+        resource: { values: [[
+          updated.id,                                  // A
+          updated.machineId || '',                     // B
+          updated.task,                                // C
+          updated.frequency,                           // D
+          updated.lastCompleted || '',                 // E
+          updated.nextDue,                             // F
+          updated.notes || '',                         // G
+          updated.active ? 'true' : 'false',          // H
+          updated.type || 'Equipment',                 // I
+          updated.location || '',                      // J
+          JSON.stringify(updated.children || []),      // K
+          updated.equipmentType || ''                  // L
+        ]] },
       });
       
       const newTasks = scheduledTasks.map(t => t.id === id ? updated : t);
@@ -1108,7 +1153,7 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Scheduled Maintenance!A:K',
+        range: 'Scheduled Maintenance!A:L',
         valueInputOption: 'RAW',
         resource: { values: [[
           bulkTask.id,                                    // A: ID
@@ -1121,7 +1166,8 @@ const App = () => {
           bulkTask.active ? 'true' : 'false',            // H: Active
           bulkTask.type || 'Bulk',                       // I: Type
           '',                                             // J: Location (empty for bulk)
-          JSON.stringify(bulkTask.children || [])        // K: Children
+          JSON.stringify(bulkTask.children || []),       // K: Children
+          bulkTask.equipmentType || ''                    // L: EquipmentType
         ]] },
       });
       
@@ -4085,12 +4131,24 @@ const ImportReceiptModal = ({ parts, vendors, onClose, onImport }) => {
       
       let fullText = '';
       
-      // Extract text from all pages
+      // Extract text from all pages with proper line breaks
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
-        fullText += pageText + '\n';
+        
+        // Group text items by Y coordinate to preserve lines
+        const lines = {};
+        textContent.items.forEach(item => {
+          const y = Math.round(item.transform[5]); // Y coordinate
+          if (!lines[y]) lines[y] = [];
+          lines[y].push(item.str);
+        });
+        
+        // Sort by Y coordinate (top to bottom) and join
+        const sortedY = Object.keys(lines).sort((a, b) => b - a); // Higher Y = top of page
+        const pageText = sortedY.map(y => lines[y].join(' ')).join('\n');
+        
+        fullText += pageText + '\n\n';
       }
       
       console.log('Extracted PDF text:', fullText); // DEBUG
