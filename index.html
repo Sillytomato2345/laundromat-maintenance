@@ -102,82 +102,69 @@ const exportToCSV = (data, filename) => {
   URL.revokeObjectURL(url);
 };
 
-// PDF Receipt Parser
+// PDF Receipt Parser - IMPROVED
 const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const items = [];
-  
-  // Common patterns for SKU, quantity, price
-  const skuPattern = /\b[A-Z0-9-]{6,20}\b/;
-  const pricePattern = /\$\s*(\d+\.?\d*)/;
-  const qtyPattern = /^(\d+)\s/;
   
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
     
-    // Look for SKU pattern
-    const skuMatch = line.match(skuPattern);
-    if (skuMatch) {
-      const sku = skuMatch[0];
-      let name = '';
-      let qty = 1;
-      let price = 0;
+    // Pattern 1: Gold Coin format
+    // Line 1: "9576-203-002 Dexter Dryer High Limit"
+    // Line 2: "SKU : 9576-203-002"
+    // Line 3: "2 $22.80"
+    
+    if (i + 2 < lines.length && lines[i + 1].toLowerCase().includes('sku')) {
+      const nameLine = line;
+      const skuLine = lines[i + 1];
+      const qtyPriceLine = lines[i + 2];
       
-      // Check if quantity is at start of line
-      const qtyMatch = line.match(qtyPattern);
-      if (qtyMatch) {
-        qty = parseInt(qtyMatch[1]);
-      }
-      
-      // Name is usually after SKU, might span multiple words
-      const skuIndex = line.indexOf(sku);
-      const afterSKU = line.substring(skuIndex + sku.length).trim();
-      
-      // Check if price is on same line
-      const priceMatch = line.match(pricePattern);
-      if (priceMatch) {
-        price = parseFloat(priceMatch[1]);
-        // Name is between SKU and price
-        name = afterSKU.replace(pricePattern, '').trim();
-      } else {
-        // Name might be on same line or next line
-        name = afterSKU;
-        // Check next line for price
-        if (i + 1 < lines.length) {
-          const nextLinePrice = lines[i + 1].match(pricePattern);
-          if (nextLinePrice) {
-            price = parseFloat(nextLinePrice[1]);
-            i++; // Skip next line
-          }
+      // Extract SKU from "SKU : 9576-203-002"
+      const skuMatch = skuLine.match(/sku\s*:?\s*([A-Z0-9-]+)/i);
+      if (skuMatch) {
+        const sku = skuMatch[1];
+        
+        // Extract name (remove SKU if it's at start of name line)
+        let name = nameLine.replace(/^[A-Z0-9-]+\s*/, '').trim();
+        
+        // Extract qty and price from "2 $22.80"
+        const qtyMatch = qtyPriceLine.match(/^(\d+)\s/);
+        const priceMatch = qtyPriceLine.match(/\$\s*(\d+\.?\d*)/);
+        
+        if (name && priceMatch) {
+          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+          const price = parseFloat(priceMatch[1]);
+          
+          items.push({ sku, name, qty, price });
+          i += 3; // Skip these 3 lines
+          continue;
         }
       }
+    }
+    
+    // Pattern 2: Laundry Owners format
+    // Single line: "1 9376-331-001 9376-331-001 - Motor St30 Mara - Dexter | Replaces Part 9376-330-001 $485.12 $0.00"
+    
+    const qtySkuNamePrice = line.match(/^(\d+)\s+([A-Z0-9-]+)\s+(.+?)\s+\$(\d+\.?\d*)/);
+    if (qtySkuNamePrice) {
+      const qty = parseInt(qtySkuNamePrice[1]);
+      const sku = qtySkuNamePrice[2];
+      let name = qtySkuNamePrice[3];
+      const price = parseFloat(qtySkuNamePrice[4]);
       
-      // Check if there's a line starting with "SKU :" pattern
-      if (i + 1 < lines.length && lines[i + 1].toLowerCase().startsWith('sku')) {
-        const actualSKU = lines[i + 1].split(':')[1]?.trim();
-        if (actualSKU) {
-          // Previous line was the name
-          name = line;
-          i++; // Move to SKU line
-          // Check next line for qty and price
-          if (i + 1 < lines.length) {
-            const nextLine = lines[i + 1];
-            const qtyMatch2 = nextLine.match(qtyPattern);
-            const priceMatch2 = nextLine.match(pricePattern);
-            if (qtyMatch2) qty = parseInt(qtyMatch2[1]);
-            if (priceMatch2) price = parseFloat(priceMatch2[1]);
-            i++;
-          }
-        }
-      }
+      // Clean name - remove duplicate SKU at start
+      name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
+      
+      // Remove tax amount at end if present
+      name = name.replace(/\s+\$\d+\.?\d*\s*$/, '').trim();
       
       if (name && price > 0) {
-        // Clean up name
-        name = name.replace(/\s+/g, ' ').replace(/^\d+\s/, '').trim();
         items.push({ sku, name, qty, price });
       }
     }
+    
     i++;
   }
   
@@ -405,19 +392,35 @@ const App = () => {
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
       setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
-      setScheduledTasks(sched.map(r => ({ 
-        id: r[0], 
-        machineId: r[1] || '', 
-        task: r[2], 
-        frequency: r[3], 
-        lastCompleted: r[4] || '', 
-        nextDue: r[5], 
-        notes: r[6] || '', 
-        active: r[7] !== 'false',
-        type: r[8] || 'Equipment',
-        location: r[9] || '',
-        children: r[10] ? JSON.parse(r[10]) : []
-      })));
+      setScheduledTasks(sched.map(r => {
+        let frequency = r[3];
+        let customValue = null;
+        let customUnit = null;
+        
+        // Decode custom frequency
+        if (frequency && frequency.startsWith('Custom:')) {
+          const parts = frequency.split(':');
+          frequency = 'Custom';
+          customValue = parts[1];
+          customUnit = parts[2] || 'days';
+        }
+        
+        return { 
+          id: r[0], 
+          machineId: r[1] || '', 
+          task: r[2], 
+          frequency, 
+          customValue,
+          customUnit,
+          lastCompleted: r[4] || '', 
+          nextDue: r[5], 
+          notes: r[6] || '', 
+          active: r[7] !== 'false',
+          type: r[8] || 'Equipment',
+          location: r[9] || '',
+          children: r[10] ? JSON.parse(r[10]) : []
+        };
+      }));
       setWarranties(warr.map(r => ({ id: r[0], machineId: r[1], startDate: r[2], endDate: r[3], provider: r[4], coverage: r[5] || '', notes: r[6] || '' })));
 
       generateAlerts(part, sched, warr);
@@ -894,12 +897,19 @@ const App = () => {
   // Scheduled Maintenance CRUD
   const addScheduledTask = async (task) => {
     const newTask = { id: Date.now().toString(), ...task, active: true };
+    
+    // Encode custom frequency if needed
+    let frequencyValue = newTask.frequency;
+    if (newTask.frequency === 'Custom' && newTask.customValue && newTask.customUnit) {
+      frequencyValue = `Custom:${newTask.customValue}:${newTask.customUnit}`;
+    }
+    
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'Scheduled Maintenance!A:K',
         valueInputOption: 'RAW',
-        resource: { values: [[newTask.id, newTask.machineId || '', newTask.task, newTask.frequency, newTask.lastCompleted || '', newTask.nextDue, newTask.notes || '', 'true', newTask.type || 'Equipment', newTask.location || '', JSON.stringify(newTask.children || [])]] },
+        resource: { values: [[newTask.id, newTask.machineId || '', newTask.task, frequencyValue, newTask.lastCompleted || '', newTask.nextDue, newTask.notes || '', 'true', newTask.type || 'Equipment', newTask.location || '', JSON.stringify(newTask.children || [])]] },
       });
       const newTasks = [...scheduledTasks, newTask];
       setScheduledTasks(newTasks);
@@ -932,7 +942,7 @@ const App = () => {
     }
   };
 
-  const calculateNextDue = (date, frequency) => {
+  const calculateNextDue = (date, frequency, customValue, customUnit) => {
     const d = new Date(date);
     switch(frequency) {
       case 'Weekly': d.setDate(d.getDate() + 7); break;
@@ -940,6 +950,16 @@ const App = () => {
       case 'Quarterly': d.setMonth(d.getMonth() + 3); break;
       case 'Semi-Annual': d.setMonth(d.getMonth() + 6); break;
       case 'Annual': case 'Annually': d.setFullYear(d.getFullYear() + 1); break;
+      case 'Custom':
+        if (customValue && customUnit) {
+          const value = parseInt(customValue);
+          if (customUnit === 'weeks') {
+            d.setDate(d.getDate() + (value * 7));
+          } else { // days
+            d.setDate(d.getDate() + value);
+          }
+        }
+        break;
     }
     return d.toISOString().split('T')[0];
   };
@@ -978,7 +998,7 @@ const App = () => {
           // Check if all children complete
           const allComplete = task.children.every(c => c.completed);
           if (allComplete) {
-            const nextDue = calculateNextDue(today, task.frequency);
+            const nextDue = calculateNextDue(today, task.frequency, task.customValue, task.customUnit);
             // Reset all children
             const resetChildren = task.children.map(c => ({ ...c, completed: false, completedDate: null }));
             await updateScheduledTask(taskId, { 
@@ -990,7 +1010,7 @@ const App = () => {
         }
       } else {
         // Complete regular task or all bulk tasks
-        const nextDue = calculateNextDue(today, task.frequency);
+        const nextDue = calculateNextDue(today, task.frequency, task.customValue, task.customUnit);
         
         // Log to history
         const historyEntry = {
@@ -1049,6 +1069,8 @@ const App = () => {
         task: form.task,
         equipmentType: form.equipmentType,
         frequency: form.frequency,
+        customValue: form.customValue,
+        customUnit: form.customUnit,
         nextDue: form.nextDue,
         lastCompleted: null,
         active: true,
@@ -1061,11 +1083,29 @@ const App = () => {
         }))
       };
       
+      // Encode custom frequency if needed
+      let frequencyValue = bulkTask.frequency;
+      if (bulkTask.frequency === 'Custom' && bulkTask.customValue && bulkTask.customUnit) {
+        frequencyValue = `Custom:${bulkTask.customValue}:${bulkTask.customUnit}`;
+      }
+      
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Scheduled Maintenance!A:I',
+        range: 'Scheduled Maintenance!A:K',
         valueInputOption: 'RAW',
-        resource: { values: [[bulkTask.id, bulkTask.task, '', bulkTask.frequency, bulkTask.lastCompleted || '', bulkTask.nextDue, bulkTask.active ? 'true' : 'false', bulkTask.type || '', JSON.stringify(bulkTask.children || [])]] },
+        resource: { values: [[
+          bulkTask.id,                                    // A: ID
+          '',                                             // B: MachineID (empty for bulk)
+          bulkTask.task,                                  // C: Task
+          frequencyValue,                                 // D: Frequency (encoded)
+          bulkTask.lastCompleted || '',                   // E: LastCompleted
+          bulkTask.nextDue,                               // F: NextDue
+          '',                                             // G: Notes
+          bulkTask.active ? 'true' : 'false',            // H: Active
+          bulkTask.type || 'Bulk',                       // I: Type
+          '',                                             // J: Location (empty for bulk)
+          JSON.stringify(bulkTask.children || [])        // K: Children
+        ]] },
       });
       
       const newTasks = [...scheduledTasks, bulkTask];
@@ -3488,32 +3528,57 @@ const ScheduledTaskModal = ({ task, machines, onClose, onSave }) => {
             />
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-black text-teal-400 mb-2">FREQUENCY *</label>
-              <select 
-                required 
-                value={form.frequency} 
-                onChange={e => setForm({...form, frequency: e.target.value})} 
-                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
-              >
-                <option>Weekly</option>
-                <option>Monthly</option>
-                <option>Quarterly</option>
-                <option>Semi-Annual</option>
-                <option>Annual</option>
-              </select>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">FREQUENCY *</label>
+            <select 
+              required 
+              value={form.frequency || 'Monthly'} 
+              onChange={e => setForm({...form, frequency: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            >
+              <option>Weekly</option>
+              <option>Monthly</option>
+              <option>Quarterly</option>
+              <option>Semi-Annual</option>
+              <option>Annual</option>
+              <option>Custom</option>
+            </select>
+          </div>
+          
+          {form.frequency === 'Custom' && (
+            <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+              <label className="block text-xs font-black text-teal-400 mb-2">CUSTOM FREQUENCY</label>
+              <div className="flex gap-2">
+                <input 
+                  type="number" 
+                  min="1"
+                  value={form.customValue || ''}
+                  onChange={e => setForm({...form, customValue: e.target.value})}
+                  placeholder="Number"
+                  className="flex-1 bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+                />
+                <select
+                  value={form.customUnit || 'days'}
+                  onChange={e => setForm({...form, customUnit: e.target.value})}
+                  className="bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+                >
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                </select>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">Example: 10 days or 3 weeks</p>
             </div>
-            <div>
-              <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE *</label>
-              <input 
-                type="date" 
-                required 
-                value={form.nextDue} 
-                onChange={e => setForm({...form, nextDue: e.target.value})} 
-                className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
-              />
-            </div>
+          )}
+          
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE *</label>
+            <input 
+              type="date" 
+              required 
+              value={form.nextDue} 
+              onChange={e => setForm({...form, nextDue: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+            />
           </div>
           
           <div>
@@ -3904,8 +3969,34 @@ const BulkScheduleModal = ({ machines, onClose, onSave }) => {
               <option value="Quarterly">Quarterly</option>
               <option value="Semi-Annual">Semi-Annual</option>
               <option value="Annual">Annual</option>
+              <option value="Custom">Custom</option>
             </select>
           </div>
+          
+          {form.frequency === 'Custom' && (
+            <div className="bg-zinc-900 border-2 border-zinc-700 p-3">
+              <label className="block text-xs font-black text-teal-400 mb-2">CUSTOM FREQUENCY</label>
+              <div className="flex gap-2">
+                <input 
+                  type="number" 
+                  min="1"
+                  value={form.customValue || ''}
+                  onChange={e => setForm({...form, customValue: e.target.value})}
+                  placeholder="Number"
+                  className="flex-1 bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500"
+                />
+                <select
+                  value={form.customUnit || 'days'}
+                  onChange={e => setForm({...form, customUnit: e.target.value})}
+                  className="bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+                >
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                </select>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">Example: 10 days or 3 weeks</p>
+            </div>
+          )}
           
           <div>
             <label className="block text-xs font-black text-teal-400 mb-2">NEXT DUE DATE *</label>
