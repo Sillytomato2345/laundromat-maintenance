@@ -2290,7 +2290,7 @@ const App = () => {
       {modal?.type === 'addWarranty' && <WarrantyModal machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={addWarranty} />}
       {modal?.type === 'editWarranty' && <WarrantyModal warranty={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateWarranty(modal.data.id, updates)} />}
       {modal?.type === 'bulkSchedule' && <BulkScheduleModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={createBulkSchedule} />}
-      {modal?.type === 'maintenanceHistory' && <MaintenanceHistoryModal history={maintenanceHistory} onClose={() => setModal(null)} onExport={exportHistory} />}
+      {/* {modal?.type === 'maintenanceHistory' && <MaintenanceHistoryModal history={maintenanceHistory} onClose={() => setModal(null)} onExport={exportHistory} />} */}
       {modal?.type === 'importReceipt' && <ImportReceiptModal parts={parts} vendors={vendors} onClose={() => setModal(null)} onImport={importPartsFromReceipt} />}
     </div>
   );
@@ -4316,9 +4316,9 @@ const ScheduledMaintenanceTab = ({ tasks, machines, onAdd, onEdit, onComplete, o
           <Icon name="clock" size={24} /> SCHEDULED MAINTENANCE
         </h2>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={onShowHistory} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-yellow-600 text-yellow-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
+          {/* <button onClick={onShowHistory} className="bg-zinc-800 hover:bg-zinc-700 border-2 border-yellow-600 text-yellow-400 px-4 py-2 font-bold flex items-center gap-2 text-sm">
             <Icon name="file" size={16} /> HISTORY
-          </button>
+          </button> */}
           <button onClick={onAddBulk} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 font-bold border-2 border-yellow-700 flex items-center gap-2 text-sm">
             <Icon name="layers" size={16} /> BULK SCHEDULE
           </button>
