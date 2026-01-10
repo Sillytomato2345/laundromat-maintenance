@@ -2171,7 +2171,7 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
         {/* Day headers */}
         <div className="grid grid-cols-7 gap-2 mb-2">
           {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
-            <div key={day} className="text-center text-xs font-black text-teal-400 py-2">
+            <div key={day} className="text-center text-xs font-black text-teal-400 py-3 bg-zinc-900">
               {day}
             </div>
           ))}
@@ -2181,7 +2181,7 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
         <div className="grid grid-cols-7 gap-2">
           {calendarDays.map((day, index) => {
             if (day === null) {
-              return <div key={`empty-${index}`} className="aspect-square" />;
+              return <div key={`empty-${index}`} className="h-16" />;
             }
             
             const events = getEventsForDate(day);
@@ -2193,14 +2193,14 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
               <button
                 key={day}
                 onClick={() => setSelectedDate(day)}
-                className={`aspect-square border-2 p-2 hover:border-teal-500 transition ${
+                className={`h-16 border-2 p-2 hover:border-teal-500 transition ${
                   isToday(day) ? 'bg-teal-900 border-teal-500' : 
                   selectedDate === day ? 'bg-zinc-700 border-teal-400' :
                   'bg-zinc-900 border-zinc-700'
                 }`}
               >
-                <div className="text-sm font-bold text-white">{day}</div>
-                <div className="flex gap-1 justify-center mt-1">
+                <div className="text-sm font-bold text-white mb-1">{day}</div>
+                <div className="flex gap-1 justify-center">
                   {hasRepairs && <div className="w-2 h-2 rounded-full bg-red-500" title="Repair" />}
                   {hasBuilding && <div className="w-2 h-2 rounded-full bg-blue-500" title="Building" />}
                   {hasScheduled && <div className="w-2 h-2 rounded-full bg-green-500" title="Scheduled" />}
@@ -2239,7 +2239,7 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
             </button>
           </div>
           
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-96 overflow-y-auto">
             {selectedEvents.map((event, i) => (
               <div key={i} className="bg-zinc-900 border-2 border-zinc-700 p-3">
                 <div className="flex items-start justify-between">
@@ -2256,9 +2256,15 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
                     </div>
                     
                     <p className="text-white font-bold">
-                      {event.machine?.name || event.data.category || 'Building'}
+                      {event.type === 'scheduled' && event.data.equipmentType
+                        ? `All ${event.data.equipmentType}s`
+                        : event.machine?.name || event.data.category || 'Building'}
                     </p>
-                    <p className="text-zinc-300 text-sm">{event.data.issue || event.data.description}</p>
+                    <p className="text-zinc-300 text-sm">
+                      {event.type === 'scheduled' 
+                        ? event.data.description 
+                        : event.data.issue}
+                    </p>
                     
                     {event.type === 'repair' && (
                       <div className="mt-2 flex gap-4 text-xs text-zinc-400">
@@ -2275,9 +2281,10 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
                       </div>
                     )}
                     
-                    {event.type === 'scheduled' && event.data.equipmentType && (
-                      <div className="mt-2 text-xs text-zinc-400">
-                        Bulk task for all {event.data.equipmentType}s
+                    {event.type === 'scheduled' && (
+                      <div className="mt-2 flex gap-4 text-xs text-zinc-400">
+                        <span>Frequency: {event.data.frequency}</span>
+                        {event.data.lastCompleted && <span>Last: {formatDateSlash(event.data.lastCompleted)}</span>}
                       </div>
                     )}
                   </div>
