@@ -99,6 +99,46 @@ const calculateAge = (purchaseDate) => {
   return (new Date() - new Date(purchaseDate)) / (1000 * 60 * 60 * 24 * 365);
 };
 
+// Validation helpers - Sprint 4.1
+const validateDate = (date, maxDate = new Date()) => {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return { valid: false, error: 'Invalid date' };
+  if (d > maxDate) return { valid: false, error: 'Date cannot be in the future' };
+  return { valid: true };
+};
+
+const validateNumber = (value, min = 0, max = Infinity, fieldName = 'Value') => {
+  const num = parseFloat(value);
+  if (isNaN(num)) return { valid: false, error: `${fieldName} must be a number` };
+  if (num < min) return { valid: false, error: `${fieldName} must be at least ${min}` };
+  if (num > max) return { valid: false, error: `${fieldName} cannot exceed ${max}` };
+  return { valid: true };
+};
+
+const validateRequired = (value, fieldName = 'Field') => {
+  if (!value || value.toString().trim() === '') {
+    return { valid: false, error: `${fieldName} is required` };
+  }
+  return { valid: true };
+};
+
+const validateWarrantyDates = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (end <= start) {
+    return { valid: false, error: 'End date must be after start date' };
+  }
+  return { valid: true };
+};
+
+const getWarningIfHigh = (value, threshold, message) => {
+  const num = parseFloat(value);
+  if (!isNaN(num) && num > threshold) {
+    return { warning: true, message };
+  }
+  return { warning: false };
+};
+
 const calculateROI = (machine, logs) => {
   const age = calculateAge(machine.purchaseDate);
   if (!age) return null;
@@ -454,6 +494,7 @@ const App = () => {
   const [scheduledTasks, setScheduledTasks] = useState([]);
   const [maintenanceHistory, setMaintenanceHistory] = useState([]);
   const [warranties, setWarranties] = useState([]);
+  const [machineNotes, setMachineNotes] = useState([]);
   
   const [year, setYear] = useState(new Date().getFullYear());
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -464,6 +505,9 @@ const App = () => {
   const [syncStatus, setSyncStatus] = useState('');
   const [alerts, setAlerts] = useState([]);
   const [modal, setModal] = useState(null);
+  const [backups, setBackups] = useState([]);
+  const [lastBackupTime, setLastBackupTime] = useState(null);
+  const [backupStatus, setBackupStatus] = useState('');
   
   const tabScrollRef = useRef(null);
 
@@ -530,6 +574,9 @@ const App = () => {
         }
         
         await loadAllData(config.spreadsheetId);
+        
+        // Load backup config and check if auto-backup needed
+        await loadBackupConfig();
       } else {
         await createSpreadsheet();
       }
@@ -585,6 +632,7 @@ const App = () => {
           { properties: { title: 'Parts Usage' } },
           { properties: { title: 'Scheduled Maintenance' } },
           { properties: { title: 'Warranties' } },
+          { properties: { title: 'Machine Notes' } },
         ],
       },
     });
@@ -613,6 +661,7 @@ const App = () => {
           { range: 'Parts Usage!A1', values: [['ID', 'LogID', 'PartID', 'Qty', 'Cost', 'Date']] },
           { range: 'Scheduled Maintenance!A1', values: [['ID', 'MachineID', 'Task', 'Frequency', 'LastCompleted', 'NextDue', 'Notes', 'Active', 'Type', 'Location', 'Children', 'EquipmentType']] },
           { range: 'Warranties!A1', values: [['ID', 'MachineID', 'StartDate', 'EndDate', 'Provider', 'Coverage', 'Notes']] },
+          { range: 'Machine Notes!A1', values: [['ID', 'MachineID', 'Date', 'Note', 'User']] },
         ],
       },
     });
@@ -632,10 +681,10 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G', 'Machine Notes!A2:E'],
       });
       
-      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
+      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr, notes] = response.result.valueRanges.map(r => r.values || []);
       
       setLocations(loc.map(r => ({ id: r[0], name: r[1], address: r[2] || '' })));
       setMachines(mach.map(r => ({ 
@@ -697,6 +746,7 @@ const App = () => {
         };
       }));
       setWarranties(warr.map(r => ({ id: r[0], machineId: r[1], startDate: r[2], endDate: r[3], provider: r[4], coverage: r[5] || '', notes: r[6] || '' })));
+      setMachineNotes(notes.map(r => ({ id: r[0], machineId: r[1], date: r[2], note: r[3], user: r[4] || 'User' })));
 
       generateAlerts(part, sched, warr);
     } catch (err) {
@@ -1695,6 +1745,213 @@ const App = () => {
     }
   };
 
+  // Machine Notes CRUD - Sprint 4.1
+  const addMachineNote = async (machineId, noteText) => {
+    if (!noteText || noteText.trim() === '') return;
+    
+    const newNote = {
+      id: Date.now().toString(),
+      machineId,
+      date: new Date().toISOString(),
+      note: noteText.trim(),
+      user: 'User'
+    };
+
+    try {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Machine Notes!A:E',
+        valueInputOption: 'RAW',
+        resource: { values: [[newNote.id, newNote.machineId, newNote.date, newNote.note, newNote.user]] },
+      });
+      
+      setMachineNotes([...machineNotes, newNote]);
+      return true;
+    } catch (err) {
+      console.error('Add note error:', err);
+      setError('Failed to add note');
+      return false;
+    }
+  };
+
+  const deleteMachineNote = async (id) => {
+    if (!window.confirm('Delete this note?')) return;
+    
+    try {
+      const index = machineNotes.findIndex(n => n.id === id);
+      const rowNum = index + 2;
+      
+      await window.gapi.client.sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `Machine Notes!A${rowNum}:E${rowNum}`,
+      });
+      
+      setMachineNotes(machineNotes.filter(n => n.id !== id));
+    } catch (err) {
+      console.error('Delete note error:', err);
+      setError('Failed to delete note');
+    }
+  };
+
+  // Automatic Backup System - Sprint 4.1
+  const BACKUP_CONFIG_FILE = 'backup_config.json';
+  const MAX_BACKUPS = 30; // Keep last 30 days
+
+  const createBackup = async () => {
+    setBackupStatus('Creating backup...');
+    try {
+      // Create a copy of the current spreadsheet
+      const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+      const backupName = `Backup_${timestamp}`;
+      
+      const copyResponse = await window.gapi.client.drive.files.copy({
+        fileId: spreadsheetId,
+        resource: {
+          name: backupName,
+          parents: [folderId]
+        }
+      });
+      
+      const backupId = copyResponse.result.id;
+      
+      // Save backup info to config
+      const newBackup = {
+        id: backupId,
+        name: backupName,
+        timestamp: new Date().toISOString(),
+        originalSpreadsheetId: spreadsheetId
+      };
+      
+      const updatedBackups = [newBackup, ...backups].slice(0, MAX_BACKUPS);
+      setBackups(updatedBackups);
+      setLastBackupTime(new Date().toISOString());
+      
+      // Save to appDataFolder
+      await saveBackupConfig(updatedBackups, new Date().toISOString());
+      
+      setBackupStatus('Backup created successfully!');
+      setTimeout(() => setBackupStatus(''), 3000);
+      return true;
+    } catch (err) {
+      console.error('Backup error:', err);
+      setBackupStatus('Backup failed');
+      setTimeout(() => setBackupStatus(''), 3000);
+      return false;
+    }
+  };
+
+  const saveBackupConfig = async (backupList, lastTime) => {
+    const config = { backups: backupList, lastBackupTime: lastTime };
+    const blob = new Blob([JSON.stringify(config)], { type: 'application/json' });
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: BACKUP_CONFIG_FILE, parents: ['appDataFolder'] })], { type: 'application/json' }));
+    form.append('file', blob);
+
+    const searchResponse = await window.gapi.client.drive.files.list({ 
+      spaces: 'appDataFolder', 
+      q: `name='${BACKUP_CONFIG_FILE}'`, 
+      fields: 'files(id)' 
+    });
+
+    if (searchResponse.result.files?.length > 0) {
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${searchResponse.result.files[0].id}?uploadType=multipart`, {
+        method: 'PATCH',
+        headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
+        body: form,
+      });
+    } else {
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: new Headers({ Authorization: 'Bearer ' + window.gapi.client.getToken().access_token }),
+        body: form,
+      });
+    }
+  };
+
+  const loadBackupConfig = async () => {
+    try {
+      const response = await window.gapi.client.drive.files.list({
+        spaces: 'appDataFolder',
+        q: `name='${BACKUP_CONFIG_FILE}'`,
+        fields: 'files(id)',
+      });
+
+      if (response.result.files?.length > 0) {
+        const fileId = response.result.files[0].id;
+        const configResponse = await window.gapi.client.drive.files.get({ fileId, alt: 'media' });
+        const config = JSON.parse(configResponse.body);
+        setBackups(config.backups || []);
+        setLastBackupTime(config.lastBackupTime || null);
+        
+        // Auto-backup if > 24 hours since last backup
+        if (config.lastBackupTime) {
+          const hoursSinceBackup = (new Date() - new Date(config.lastBackupTime)) / (1000 * 60 * 60);
+          if (hoursSinceBackup >= 24) {
+            console.log('Auto-backup: Last backup was', hoursSinceBackup.toFixed(1), 'hours ago');
+            await createBackup();
+          }
+        } else {
+          // First time - create initial backup
+          await createBackup();
+        }
+      }
+    } catch (err) {
+      console.error('Load backup config error:', err);
+    }
+  };
+
+  const restoreFromBackup = async (backupId, backupName) => {
+    if (!window.confirm(`Restore from backup "${backupName}"?\n\nThis will create a new spreadsheet from this backup. Your current spreadsheet will not be affected.`)) {
+      return;
+    }
+    
+    setBackupStatus('Restoring from backup...');
+    try {
+      // Create a copy of the backup
+      const copyResponse = await window.gapi.client.drive.files.copy({
+        fileId: backupId,
+        resource: {
+          name: 'Laundromat Maintenance Pro (Restored)',
+          parents: [folderId]
+        }
+      });
+      
+      const restoredId = copyResponse.result.id;
+      
+      // Update config to use restored spreadsheet
+      setSpreadsheetId(restoredId);
+      await saveToCloud(restoredId, folderId);
+      
+      // Reload data from restored spreadsheet
+      await loadAllData(restoredId);
+      
+      setBackupStatus('Restored successfully! Please refresh the page.');
+      alert('Backup restored! The page will refresh to load the restored data.');
+      window.location.reload();
+    } catch (err) {
+      console.error('Restore error:', err);
+      setBackupStatus('Restore failed');
+      setTimeout(() => setBackupStatus(''), 3000);
+    }
+  };
+
+  const deleteOldBackups = async () => {
+    if (backups.length <= MAX_BACKUPS) return;
+    
+    const backupsToDelete = backups.slice(MAX_BACKUPS);
+    for (const backup of backupsToDelete) {
+      try {
+        await window.gapi.client.drive.files.delete({ fileId: backup.id });
+      } catch (err) {
+        console.error('Delete backup error:', err);
+      }
+    }
+    
+    const remainingBackups = backups.slice(0, MAX_BACKUPS);
+    setBackups(remainingBackups);
+    await saveBackupConfig(remainingBackups, lastBackupTime);
+  };
+
   // Import Parts from Receipt (PDF)
   const importPartsFromReceipt = async (items, pdfFile = null) => {
     setSyncStatus('Importing parts...');
@@ -1862,6 +2119,7 @@ const App = () => {
               { id: 'scheduled', icon: 'clock', label: 'SCHEDULED' },
               { id: 'warranties', icon: 'shield', label: 'WARRANTIES' },
               { id: 'reports', icon: 'chart', label: 'REPORTS' },
+              { id: 'settings', icon: 'settings', label: 'SETTINGS' },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
                 <Icon name={tab.icon} size={18} />
@@ -1904,6 +2162,9 @@ const App = () => {
             onDelete={deleteMachine}
             onArchive={archiveMachine}
             onUnarchive={unarchiveMachine}
+            machineNotes={machineNotes}
+            onAddNote={addMachineNote}
+            onDeleteNote={deleteMachineNote}
           />
         )}
         {activeTab === 'repairs' && (
@@ -1988,6 +2249,24 @@ const App = () => {
             onAdd={() => setModal({ type: 'addWarranty' })}
             onEdit={(warranty) => setModal({ type: 'editWarranty', data: warranty })}
             onDelete={deleteWarranty}
+          />
+        )}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            backups={backups}
+            lastBackupTime={lastBackupTime}
+            backupStatus={backupStatus}
+            onBackupNow={createBackup}
+            onRestore={restoreFromBackup}
+            spreadsheetId={spreadsheetId}
+            machines={machines}
+            equipmentLogs={equipmentLogs}
+            buildingLogs={buildingLogs}
+            parts={parts}
+            partsUsage={partsUsage}
+            scheduledTasks={scheduledTasks}
+            warranties={warranties}
+            year={year}
           />
         )}
       </main>
@@ -2127,11 +2406,111 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
   );
 };
 
+// Machine Notes Modal - Sprint 4.1
+const MachineNotesModal = ({ machine, notes, onClose, onAddNote, onDeleteNote }) => {
+  const [noteText, setNoteText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  
+  const machineNotes = notes.filter(n => n.machineId === machine.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    
+    setSubmitting(true);
+    const success = await onAddNote(machine.id, noteText);
+    if (success) {
+      setNoteText('');
+    }
+    setSubmitting(false);
+  };
+  
+  const formatDateTime = (isoString) => {
+    const date = new Date(isoString);
+    return date.toLocaleString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-yellow-600 max-w-2xl w-full p-6 max-h-[80vh] flex flex-col">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-yellow-400">📝 MACHINE NOTES - {machine.name}</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        {/* Add Note Form */}
+        <form onSubmit={handleSubmit} className="mb-6">
+          <label className="block text-xs font-black text-yellow-400 mb-2">ADD NEW NOTE</label>
+          <textarea 
+            value={noteText}
+            onChange={e => setNoteText(e.target.value)}
+            placeholder="e.g., Makes grinding noise on spin cycle. Monitor closely."
+            className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-yellow-500 h-24 mb-3"
+            disabled={submitting}
+          />
+          <button 
+            type="submit" 
+            disabled={submitting || !noteText.trim()}
+            className="bg-yellow-600 hover:bg-yellow-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-6 py-2 font-black border-2 border-yellow-700 flex items-center gap-2"
+          >
+            <Icon name="plus" size={16} />
+            {submitting ? 'SAVING...' : 'ADD NOTE'}
+          </button>
+        </form>
+        
+        {/* Notes List */}
+        <div className="flex-1 overflow-y-auto space-y-3">
+          <label className="block text-xs font-black text-yellow-400 mb-2">HISTORY ({machineNotes.length} notes)</label>
+          
+          {machineNotes.length === 0 && (
+            <div className="text-center text-zinc-500 py-8 italic">
+              No notes yet. Add one above to start tracking observations.
+            </div>
+          )}
+          
+          {machineNotes.map(note => (
+            <div key={note.id} className="bg-zinc-900 border-2 border-zinc-700 p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div className="text-xs text-yellow-400 font-bold">{formatDateTime(note.date)}</div>
+                <button 
+                  onClick={() => onDeleteNote(note.id)}
+                  className="text-red-400 hover:text-red-300 text-xs"
+                  title="Delete note"
+                >
+                  <Icon name="trash-2" size={14} />
+                </button>
+              </div>
+              <div className="text-white font-bold leading-relaxed">{note.note}</div>
+              <div className="text-xs text-zinc-500 mt-2">— {note.user}</div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-6">
+          <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">
+            CLOSE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Equipment Tab with ARCHIVE feature and NESTED GROUPING
-const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive }) => {
+const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote }) => {
   const [search, setSearch] = useState('');
   const [expandedTypes, setExpandedTypes] = useState({});
   const [expandedModels, setExpandedModels] = useState({});
+  const [notesModal, setNotesModal] = useState(null); // {machine}
   
   const filtered = machines.filter(m => 
     m.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -2240,6 +2619,9 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                                       <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
                                     </div>
                                     <div className="flex gap-2">
+                                      <button onClick={() => setNotesModal(m)} className="text-yellow-400 hover:text-yellow-300" title="View/Add Notes">
+                                        <Icon name="file-text" size={16} />
+                                      </button>
                                       <button onClick={() => onEdit(m)} className="text-teal-400 hover:text-teal-300">
                                         <Icon name="edit" size={16} />
                                       </button>
@@ -2641,6 +3023,17 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
           <div className="text-center py-8 text-zinc-500 font-bold">NO REPAIR RECORDS</div>
         )}
       </div>
+      
+      {/* Machine Notes Modal */}
+      {notesModal && (
+        <MachineNotesModal 
+          machine={notesModal} 
+          notes={machineNotes}
+          onClose={() => setNotesModal(null)}
+          onAddNote={onAddNote}
+          onDeleteNote={onDeleteNote}
+        />
+      )}
     </div>
   );
 };
@@ -3251,9 +3644,50 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
   const [selectedParts, setSelectedParts] = useState([]);
   const [photoFiles, setPhotoFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [warnings, setWarnings] = useState({});
   const fileRef = useRef(null);
 
   const activeMachines = machines.filter(m => !m.archived);
+
+  // Validate form on change
+  const validateForm = () => {
+    const newErrors = {};
+    const newWarnings = {};
+
+    // Validate required fields
+    const machineValidation = validateRequired(form.machineId, 'Machine');
+    if (!machineValidation.valid) newErrors.machineId = machineValidation.error;
+
+    const issueValidation = validateRequired(form.issue, 'Issue');
+    if (!issueValidation.valid) newErrors.issue = issueValidation.error;
+
+    const techValidation = validateRequired(form.tech, 'Technician');
+    if (!techValidation.valid) newErrors.tech = techValidation.error;
+
+    // Validate date
+    const dateValidation = validateDate(form.date);
+    if (!dateValidation.valid) newErrors.date = dateValidation.error;
+
+    // Validate numbers
+    const costValidation = validateNumber(form.laborCost, 0, Infinity, 'Labor cost');
+    if (!costValidation.valid) newErrors.laborCost = costValidation.error;
+
+    const hoursValidation = validateNumber(form.hours, 0, 24, 'Hours');
+    if (!hoursValidation.valid) newErrors.hours = hoursValidation.error;
+
+    // High cost warning
+    const costWarning = getWarningIfHigh(totalCost, 1000, 'This is a high-cost repair (>$1000). Please verify.');
+    if (costWarning.warning) newWarnings.totalCost = costWarning.message;
+
+    // High hours warning
+    const hoursWarning = getWarningIfHigh(form.hours, 8, 'Hours worked exceeds 8. Please verify.');
+    if (hoursWarning.warning) newWarnings.hours = hoursWarning.message;
+
+    setErrors(newErrors);
+    setWarnings(newWarnings);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const addPart = () => {
     setSelectedParts([...selectedParts, { id: parts[0]?.id || '', qty: '1', cost: parts[0]?.cost || '0' }]);
@@ -3294,6 +3728,21 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    
+    // Validate form
+    if (!validateForm()) {
+      alert('Please fix the errors before submitting.');
+      return;
+    }
+
+    // Show warnings if any
+    if (Object.keys(warnings).length > 0) {
+      const warningMessages = Object.values(warnings).join('\n');
+      if (!window.confirm(`Warning:\n${warningMessages}\n\nDo you want to proceed?`)) {
+        return;
+      }
+    }
+
     onSave(form, selectedParts, photoFiles);
   };
 
@@ -4016,6 +4465,325 @@ const WarrantiesTab = ({ warranties, machines, onAdd, onEdit, onDelete }) => {
           <p className="text-zinc-500 font-bold">NO WARRANTIES FOUND</p>
         </div>
       )}
+    </div>
+  );
+};
+
+// Settings Tab - Sprint 4.1 Feature #3 & #4
+const SettingsTab = ({ backups, lastBackupTime, backupStatus, onBackupNow, onRestore, spreadsheetId, machines, equipmentLogs, buildingLogs, parts, partsUsage, scheduledTasks, warranties, year }) => {
+  const [exportStatus, setExportStatus] = useState('');
+  
+  const formatBackupTime = (isoString) => {
+    if (!isoString) return 'Never';
+    const date = new Date(isoString);
+    return date.toLocaleString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+  
+  const exportToCSV = (data, filename) => {
+    setExportStatus(`Exporting ${filename}...`);
+    try {
+      const csv = data.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportStatus(`Exported ${filename}!`);
+      setTimeout(() => setExportStatus(''), 3000);
+    } catch (err) {
+      setExportStatus(`Export failed: ${err.message}`);
+      setTimeout(() => setExportStatus(''), 3000);
+    }
+  };
+  
+  const exportEquipmentLogs = () => {
+    const headers = ['Date', 'Machine', 'Issue', 'Technician', 'Cost', 'Hours', 'Parts Used', 'Notes'];
+    const rows = equipmentLogs
+      .filter(l => new Date(l.date).getFullYear() === year)
+      .map(l => {
+        const machine = machines.find(m => m.id === l.machineId);
+        return [
+          l.date,
+          machine?.name || 'Unknown',
+          l.issue,
+          l.tech,
+          l.cost,
+          l.hours,
+          l.partsUsed || 'None',
+          l.notes || ''
+        ];
+      });
+    exportToCSV([headers, ...rows], `Equipment_Repairs_${year}`);
+  };
+  
+  const exportBuildingLogs = () => {
+    const headers = ['Date', 'Category', 'Issue', 'Technician', 'Cost', 'Hours', 'Notes'];
+    const rows = buildingLogs
+      .filter(l => new Date(l.date).getFullYear() === year)
+      .map(l => [
+        l.date,
+        l.category,
+        l.issue,
+        l.tech,
+        l.cost,
+        l.hours,
+        l.notes || ''
+      ]);
+    exportToCSV([headers, ...rows], `Building_Maintenance_${year}`);
+  };
+  
+  const exportPartsInventory = () => {
+    const headers = ['Part Name', 'SKU', 'Stock', 'Min Stock', 'Cost', 'Bin Location', 'Status'];
+    const rows = parts.map(p => [
+      p.name,
+      p.sku,
+      p.stock,
+      p.minStock,
+      p.cost,
+      p.binLocation || '',
+      p.snoozed ? 'Ignored' : (parseInt(p.stock) === 0 ? 'Out of Stock' : parseInt(p.stock) <= parseInt(p.minStock) ? 'Low Stock' : 'OK')
+    ]);
+    exportToCSV([headers, ...rows], 'Parts_Inventory');
+  };
+  
+  const exportMachineHistory = (machineId) => {
+    const machine = machines.find(m => m.id === machineId);
+    if (!machine) return;
+    
+    const headers = ['Date', 'Issue', 'Technician', 'Cost', 'Hours', 'Parts Used', 'Notes'];
+    const rows = equipmentLogs
+      .filter(l => l.machineId === machineId)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .map(l => [
+        l.date,
+        l.issue,
+        l.tech,
+        l.cost,
+        l.hours,
+        l.partsUsed || 'None',
+        l.notes || ''
+      ]);
+    exportToCSV([headers, ...rows], `${machine.name.replace(/[^a-z0-9]/gi, '_')}_History`);
+  };
+  
+  const exportMonthlySummary = () => {
+    const yearLogs = equipmentLogs.filter(l => new Date(l.date).getFullYear() === year);
+    const yearBldg = buildingLogs.filter(l => new Date(l.date).getFullYear() === year);
+    
+    const headers = ['Month', 'Equipment Repairs', 'Equipment Cost', 'Building Repairs', 'Building Cost', 'Total Cost'];
+    const rows = [];
+    
+    for (let month = 0; month < 12; month++) {
+      const monthEq = yearLogs.filter(l => new Date(l.date).getMonth() === month);
+      const monthBldg = yearBldg.filter(l => new Date(l.date).getMonth() === month);
+      const eqCost = monthEq.reduce((sum, l) => sum + parseFloat(l.cost || 0), 0);
+      const bldgCost = monthBldg.reduce((sum, l) => sum + parseFloat(l.cost || 0), 0);
+      
+      rows.push([
+        new Date(year, month, 1).toLocaleString('en', { month: 'long' }),
+        monthEq.length,
+        eqCost.toFixed(2),
+        monthBldg.length,
+        bldgCost.toFixed(2),
+        (eqCost + bldgCost).toFixed(2)
+      ]);
+    }
+    
+    exportToCSV([headers, ...rows], `Monthly_Summary_${year}`);
+  };
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-6">
+        <Icon name="settings" size={32} className="text-teal-400" />
+        <h2 className="text-3xl font-black text-teal-400">SETTINGS</h2>
+      </div>
+      
+      {/* Backup Section */}
+      <div className="bg-zinc-800 border-2 border-yellow-600 p-6">
+        <h3 className="text-xl font-black text-yellow-400 mb-4 flex items-center gap-2">
+          <Icon name="database" size={24} />
+          AUTOMATIC BACKUPS
+        </h3>
+        
+        <div className="space-y-4">
+          <div className="bg-zinc-900 p-4 border-2 border-zinc-700">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <div className="text-xs text-yellow-400 font-bold mb-1">LAST BACKUP</div>
+                <div className="text-white font-bold">{formatBackupTime(lastBackupTime)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-yellow-400 font-bold mb-1">TOTAL BACKUPS</div>
+                <div className="text-white font-bold">{backups.length} / 30 (last 30 days kept)</div>
+              </div>
+            </div>
+            
+            {backupStatus && (
+              <div className="bg-teal-900 border-2 border-teal-600 px-4 py-2 text-white font-bold mb-4">
+                {backupStatus}
+              </div>
+            )}
+            
+            <button 
+              onClick={onBackupNow}
+              className="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-3 font-black border-2 border-yellow-700 flex items-center gap-2"
+            >
+              <Icon name="save" size={18} />
+              BACKUP NOW
+            </button>
+          </div>
+          
+          <div className="bg-zinc-900 p-4 border-2 border-zinc-700">
+            <h4 className="text-md font-black text-yellow-400 mb-3">AVAILABLE BACKUPS</h4>
+            
+            {backups.length === 0 && (
+              <p className="text-zinc-500 italic">No backups yet. Click "Backup Now" to create your first backup.</p>
+            )}
+            
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {backups.map(backup => (
+                <div key={backup.id} className="flex justify-between items-center bg-zinc-800 p-3 border border-zinc-700">
+                  <div>
+                    <div className="text-white font-bold">{backup.name}</div>
+                    <div className="text-xs text-zinc-500">{formatBackupTime(backup.timestamp)}</div>
+                  </div>
+                  <button 
+                    onClick={() => onRestore(backup.id, backup.name)}
+                    className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 text-sm font-black border-2 border-teal-700"
+                  >
+                    RESTORE
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <div className="bg-zinc-900 p-4 border-2 border-zinc-700">
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              <strong className="text-yellow-400">Auto-Backup:</strong> A backup is automatically created every 24 hours when you open the app. 
+              Backups are copies of your entire spreadsheet. The last 30 backups are kept automatically. 
+              <br /><br />
+              <strong className="text-yellow-400">Note:</strong> Backups include all spreadsheet data but do NOT include uploaded photos/PDFs. 
+              Those are stored separately in Google Drive and are not affected by restore operations.
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Export Section */}
+      <div className="bg-zinc-800 border-2 border-teal-600 p-6">
+        <h3 className="text-xl font-black text-teal-400 mb-4 flex items-center gap-2">
+          <Icon name="download" size={24} />
+          EXPORT DATA (CSV/EXCEL)
+        </h3>
+        
+        {exportStatus && (
+          <div className="bg-teal-900 border-2 border-teal-600 px-4 py-2 text-white font-bold mb-4">
+            {exportStatus}
+          </div>
+        )}
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button 
+            onClick={exportEquipmentLogs}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700 flex items-center justify-center gap-2"
+          >
+            <Icon name="wrench" size={18} />
+            EXPORT EQUIPMENT REPAIRS ({year})
+          </button>
+          
+          <button 
+            onClick={exportBuildingLogs}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700 flex items-center justify-center gap-2"
+          >
+            <Icon name="home" size={18} />
+            EXPORT BUILDING MAINTENANCE ({year})
+          </button>
+          
+          <button 
+            onClick={exportPartsInventory}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700 flex items-center justify-center gap-2"
+          >
+            <Icon name="package" size={18} />
+            EXPORT PARTS INVENTORY
+          </button>
+          
+          <button 
+            onClick={exportMonthlySummary}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-4 font-black border-2 border-teal-700 flex items-center justify-center gap-2"
+          >
+            <Icon name="chart" size={18} />
+            EXPORT MONTHLY SUMMARY ({year})
+          </button>
+        </div>
+        
+        <div className="mt-6 bg-zinc-900 p-4 border-2 border-zinc-700">
+          <h4 className="text-md font-black text-teal-400 mb-3">EXPORT SPECIFIC MACHINE HISTORY</h4>
+          <select 
+            onChange={(e) => e.target.value && exportMachineHistory(e.target.value)}
+            className="w-full bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+          >
+            <option value="">-- Select a machine --</option>
+            {machines.filter(m => !m.archived).map(m => (
+              <option key={m.id} value={m.id}>{m.name} ({m.model})</option>
+            ))}
+          </select>
+          <p className="text-xs text-zinc-500 mt-2 italic">
+            Select a machine to export its complete repair history
+          </p>
+        </div>
+        
+        <div className="mt-6 bg-zinc-900 p-4 border-2 border-zinc-700">
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            <strong className="text-teal-400">CSV Format:</strong> Exports are compatible with Excel, Google Sheets, and QuickBooks. 
+            Files are named with the current date for easy organization.
+            <br /><br />
+            <strong className="text-teal-400">For Tax Purposes:</strong> Export monthly summaries and individual repair logs. 
+            Keep these files for your records and share with your accountant.
+          </p>
+        </div>
+      </div>
+      
+      {/* Spreadsheet Info */}
+      <div className="bg-zinc-800 border-2 border-zinc-600 p-6">
+        <h3 className="text-xl font-black text-zinc-400 mb-4 flex items-center gap-2">
+          <Icon name="info" size={24} />
+          SYSTEM INFORMATION
+        </h3>
+        
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-zinc-500">Spreadsheet ID:</span>
+            <span className="text-white font-mono text-xs">{spreadsheetId}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-500">Active Year:</span>
+            <span className="text-white font-bold">{year}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-500">Total Machines:</span>
+            <span className="text-white font-bold">{machines.length}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-500">Total Repairs ({year}):</span>
+            <span className="text-white font-bold">{equipmentLogs.filter(l => new Date(l.date).getFullYear() === year).length}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-500">Total Parts:</span>
+            <span className="text-white font-bold">{parts.length}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
