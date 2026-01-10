@@ -698,7 +698,14 @@ const App = () => {
     const newAlerts = [];
     
     // Low stock alerts (skip snoozed parts)
-    parts.forEach(part => {
+    // Use parts state if available (for real-time updates), otherwise use partData parameter
+    const partsToCheck = parts.length > 0 ? parts : partData.map(r => ({ 
+      id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], 
+      cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '', 
+      snoozed: r[9] === 'true' 
+    }));
+    
+    partsToCheck.forEach(part => {
       if (part.snoozed) return; // Skip snoozed parts
       
       const stock = parseInt(part.stock || 0);
@@ -1753,6 +1760,8 @@ const App = () => {
             scheduledTasks={scheduledTasks}
             machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)}
             year={year}
+            onViewRepair={(log) => setModal({ type: 'viewRepair', data: log })}
+            onViewBuilding={(log) => setModal({ type: 'viewBuilding', data: log })}
           />
         )}
         {activeTab === 'building' && (
@@ -2132,7 +2141,7 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
 };
 
 // Calendar Tab - Month Grid View
-const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, year }) => {
+const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, year, onViewRepair, onViewBuilding }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState(null);
@@ -2320,10 +2329,10 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
               <button
                 key={i}
                 onClick={() => {
-                  if (event.type === 'repair') {
-                    setModal({ type: 'viewRepair', data: event.data });
-                  } else if (event.type === 'building') {
-                    setModal({ type: 'viewBuilding', data: event.data });
+                  if (event.type === 'repair' && onViewRepair) {
+                    onViewRepair(event.data);
+                  } else if (event.type === 'building' && onViewBuilding) {
+                    onViewBuilding(event.data);
                   }
                   // Note: Scheduled tasks don't have a detail modal yet
                 }}
