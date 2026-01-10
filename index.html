@@ -818,12 +818,17 @@ const App = () => {
     if (!window.confirm('DELETE this machine permanently? This cannot be undone.')) return;
     try {
       const index = machines.findIndex(m => m.id === id);
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+      const rowNum = index + 2;
+      
+      // Clear the row data instead of deleting the dimension
+      await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        resource: { requests: [{ deleteDimension: { range: { sheetId: 1, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+        range: `Machines!A${rowNum}:I${rowNum}`,
       });
+      
       setMachines(machines.filter(m => m.id !== id));
     } catch (err) {
+      console.error('Delete machine error:', err);
       setError('Failed to delete machine');
     }
   };
@@ -980,14 +985,19 @@ const App = () => {
     if (!window.confirm('Delete this part?')) return;
     try {
       const index = parts.findIndex(p => p.id === id);
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+      const rowNum = index + 2; // +2 because row 1 is header, and array is 0-indexed
+      
+      // Clear the row data instead of deleting the dimension
+      await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        resource: { requests: [{ deleteDimension: { range: { sheetId: 5, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+        range: `Parts Inventory!A${rowNum}:I${rowNum}`,
       });
+      
       const newParts = parts.filter(p => p.id !== id);
       setParts(newParts);
       generateAlerts(newParts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]));
     } catch (err) {
+      console.error('Delete part error:', err);
       setError('Failed to delete part');
     }
   };
@@ -1033,12 +1043,17 @@ const App = () => {
     if (!window.confirm('Delete this vendor?')) return;
     try {
       const index = vendors.findIndex(v => v.id === id);
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+      const rowNum = index + 2;
+      
+      // Clear the row data instead of deleting the dimension
+      await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        resource: { requests: [{ deleteDimension: { range: { sheetId: 4, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+        range: `Vendors!A${rowNum}:H${rowNum}`,
       });
+      
       setVendors(vendors.filter(v => v.id !== id));
     } catch (err) {
+      console.error('Delete vendor error:', err);
       setError('Failed to delete vendor');
     }
   };
@@ -1340,14 +1355,19 @@ const App = () => {
     if (!window.confirm('Delete this scheduled task?')) return;
     try {
       const index = scheduledTasks.findIndex(t => t.id === id);
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+      const rowNum = index + 2;
+      
+      // Clear the row data instead of deleting the dimension
+      await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        resource: { requests: [{ deleteDimension: { range: { sheetId: 7, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+        range: `Scheduled Maintenance!A${rowNum}:L${rowNum}`,
       });
+      
       const newTasks = scheduledTasks.filter(t => t.id !== id);
       setScheduledTasks(newTasks);
       generateAlerts(parts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]), newTasks, warranties);
     } catch (err) {
+      console.error('Delete task error:', err);
       setError('Failed to delete task');
     }
   };
@@ -1466,14 +1486,19 @@ const App = () => {
     if (!window.confirm('Delete this warranty?')) return;
     try {
       const index = warranties.findIndex(w => w.id === id);
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+      const rowNum = index + 2;
+      
+      // Clear the row data instead of deleting the dimension
+      await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        resource: { requests: [{ deleteDimension: { range: { sheetId: 8, dimension: 'ROWS', startIndex: index + 1, endIndex: index + 2 } } }] },
+        range: `Warranties!A${rowNum}:G${rowNum}`,
       });
+      
       const newWarranties = warranties.filter(w => w.id !== id);
       setWarranties(newWarranties);
       generateAlerts(parts.map(p => [p.id, p.name, p.sku, p.stock, p.minStock, p.cost, p.vendorId, p.locationId, p.notes]), scheduledTasks, newWarranties);
     } catch (err) {
+      console.error('Delete warranty error:', err);
       setError('Failed to delete warranty');
     }
   };
