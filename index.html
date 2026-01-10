@@ -1762,6 +1762,7 @@ const App = () => {
             year={year}
             onViewRepair={(log) => setModal({ type: 'viewRepair', data: log })}
             onViewBuilding={(log) => setModal({ type: 'viewBuilding', data: log })}
+            onViewTask={(task) => setModal({ type: 'viewTask', data: task })}
           />
         )}
         {activeTab === 'building' && (
@@ -1843,6 +1844,7 @@ const App = () => {
       {modal?.type === 'editBuilding' && <EditBuildingModal log={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateBuildingLog(modal.data.id, updates)} />}
       {modal?.type === 'addTask' && <ScheduledTaskModal machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={addScheduledTask} />}
       {modal?.type === 'editTask' && <ScheduledTaskModal task={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateScheduledTask(modal.data.id, updates)} />}
+      {modal?.type === 'viewTask' && <ScheduledTaskDetailModal task={modal.data} machines={machines} onClose={() => setModal(null)} onEdit={(task) => setModal({ type: 'editTask', data: task })} />}
       {modal?.type === 'addWarranty' && <WarrantyModal machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={addWarranty} />}
       {modal?.type === 'editWarranty' && <WarrantyModal warranty={modal.data} machines={machines.filter(m => !m.archived)} onClose={() => setModal(null)} onSave={(updates) => updateWarranty(modal.data.id, updates)} />}
       {modal?.type === 'bulkSchedule' && <BulkScheduleModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={createBulkSchedule} />}
@@ -2141,7 +2143,7 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
 };
 
 // Calendar Tab - Month Grid View
-const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, year, onViewRepair, onViewBuilding }) => {
+const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, year, onViewRepair, onViewBuilding, onViewTask }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState(null);
@@ -2333,8 +2335,9 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
                     onViewRepair(event.data);
                   } else if (event.type === 'building' && onViewBuilding) {
                     onViewBuilding(event.data);
+                  } else if (event.type === 'scheduled' && onViewTask) {
+                    onViewTask(event.data);
                   }
-                  // Note: Scheduled tasks don't have a detail modal yet
                 }}
                 className="w-full bg-zinc-900 border-2 border-zinc-700 p-3 hover:border-teal-500 transition text-left"
               >
@@ -2385,7 +2388,7 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
                     )}
                   </div>
                   
-                  {(event.type === 'repair' || event.type === 'building') && (
+                  {(event.type === 'repair' || event.type === 'building' || event.type === 'scheduled') && (
                     <div className="ml-3">
                       <Icon name="chevron-right" size={16} className="text-zinc-500" />
                     </div>
@@ -3965,6 +3968,110 @@ const RepairDetailModal = ({ log, machines, parts, onClose, onEdit }) => {
 };
 
 // Building Detail Modal - NEW IN SPRINT 3
+// Scheduled Task Detail Modal
+const ScheduledTaskDetailModal = ({ task, machines, onClose, onEdit }) => {
+  const machine = machines.find(m => m.id === task.machineId);
+  
+  // Format frequency display
+  let frequencyDisplay = task.frequency;
+  if (task.frequency === 'Custom' && task.customValue && task.customUnit) {
+    frequencyDisplay = `Every ${task.customValue} ${task.customUnit}`;
+  }
+  
+  // Get equipment type display
+  const equipmentDisplay = task.equipmentType 
+    ? `All ${task.equipmentType}s` 
+    : machine?.name || 'N/A';
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-zinc-800 border-4 border-green-600 max-w-3xl w-full p-6 my-8">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-green-400 flex items-center gap-2">
+            <Icon name="clock" size={24} />
+            SCHEDULED MAINTENANCE DETAILS
+            {!task.active && <span className="px-2 py-1 bg-red-900 text-red-300 text-xs font-bold rounded">INACTIVE</span>}
+          </h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-black text-green-400">EQUIPMENT</label>
+              <p className="text-white font-bold">{equipmentDisplay}</p>
+            </div>
+            <div>
+              <label className="text-xs font-black text-green-400">FREQUENCY</label>
+              <p className="text-white font-bold">{frequencyDisplay}</p>
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-xs font-black text-green-400">TASK DESCRIPTION</label>
+            <p className="text-white font-bold">{task.task}</p>
+          </div>
+          
+          {task.notes && (
+            <div>
+              <label className="text-xs font-black text-green-400">NOTES</label>
+              <p className="text-white">{task.notes}</p>
+            </div>
+          )}
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-black text-green-400">LAST COMPLETED</label>
+              <p className="text-white">{task.lastCompleted ? formatDateSlash(task.lastCompleted) : 'Never'}</p>
+            </div>
+            <div>
+              <label className="text-xs font-black text-green-400">NEXT DUE</label>
+              <p className="text-white font-bold">{formatDateSlash(task.nextDue)}</p>
+            </div>
+          </div>
+          
+          {task.type && (
+            <div>
+              <label className="text-xs font-black text-green-400">TYPE</label>
+              <p className="text-white">{task.type}</p>
+            </div>
+          )}
+          
+          {task.children && task.children.length > 0 && (
+            <div>
+              <label className="text-xs font-black text-green-400 mb-2 block">CHILD TASKS ({task.children.length})</label>
+              <div className="bg-zinc-900 border border-zinc-700 p-3 space-y-2">
+                {task.children.map((child, i) => {
+                  const childMachine = machines.find(m => m.id === child.machineId);
+                  return (
+                    <div key={i} className="flex justify-between items-center">
+                      <span className="text-white">{childMachine?.name || 'Unknown Machine'}</span>
+                      <span className={`px-2 py-1 text-xs font-bold ${child.completed ? 'bg-green-900 text-green-400' : 'bg-zinc-800 text-zinc-400'}`}>
+                        {child.completed ? 'COMPLETED' : 'PENDING'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          <div className="flex gap-3 pt-4">
+            <button onClick={onClose} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 font-black border-2 border-zinc-600">CLOSE</button>
+            {!task.locked && (
+              <button onClick={() => onEdit(task)} className="flex-1 bg-green-600 hover:bg-green-500 text-white px-4 py-3 font-black border-2 border-green-700 flex items-center justify-center gap-2">
+                <Icon name="edit" size={18} /> EDIT
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const BuildingDetailModal = ({ log, onClose, onEdit }) => {
   const [photoIndex, setPhotoIndex] = useState(0);
   const fileIds = log.files ? log.files.split(',').filter(Boolean) : [];
