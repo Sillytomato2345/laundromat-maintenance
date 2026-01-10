@@ -609,7 +609,7 @@ const App = () => {
           { range: 'Equipment Logs!A1', values: [['ID', 'LocationID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'PartsUsed', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Building Logs!A1', values: [['ID', 'LocationID', 'Date', 'Category', 'Issue', 'Tech', 'Cost', 'Hours', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Vendors!A1', values: [['ID', 'Name', 'Contact', 'Phone', 'Email', 'Specialties', 'Rate', 'Notes']] },
-          { range: 'Parts Inventory!A1', values: [['ID', 'Name', 'SKU', 'Stock', 'MinStock', 'Cost', 'VendorID', 'LocationID', 'Notes', 'Snoozed']] },
+          { range: 'Parts Inventory!A1', values: [['ID', 'Name', 'SKU', 'Stock', 'MinStock', 'Cost', 'VendorID', 'LocationID', 'Notes', 'Snoozed', 'BinLocation']] },
           { range: 'Parts Usage!A1', values: [['ID', 'LogID', 'PartID', 'Qty', 'Cost', 'Date']] },
           { range: 'Scheduled Maintenance!A1', values: [['ID', 'MachineID', 'Task', 'Frequency', 'LastCompleted', 'NextDue', 'Notes', 'Active', 'Type', 'Location', 'Children', 'EquipmentType']] },
           { range: 'Warranties!A1', values: [['ID', 'MachineID', 'StartDate', 'EndDate', 'Provider', 'Coverage', 'Notes']] },
@@ -632,7 +632,7 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:J', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
@@ -652,7 +652,7 @@ const App = () => {
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
-      setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '', snoozed: r[9] === 'true' })));
+      setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '', snoozed: r[9] === 'true', binLocation: r[10] || '' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
       setScheduledTasks(sched.map(r => {
         let frequency = r[3];
@@ -1101,9 +1101,9 @@ const App = () => {
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Parts Inventory!A:J',
+        range: 'Parts Inventory!A:K',
         valueInputOption: 'RAW',
-        resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId || '', newPart.locationId, newPart.notes || '', 'false']] },
+        resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId || '', newPart.locationId, newPart.notes || '', 'false', newPart.binLocation || '']] },
       });
       setParts([...parts, newPart]);
       setModal(null);
@@ -1121,9 +1121,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Parts Inventory!A${rowNum}:J${rowNum}`,
+        range: `Parts Inventory!A${rowNum}:K${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.name, updated.sku, updated.stock, updated.minStock, updated.cost, updated.vendorId || '', updated.locationId, updated.notes || '', updated.snoozed ? 'true' : 'false']] },
+        resource: { values: [[updated.id, updated.name, updated.sku, updated.stock, updated.minStock, updated.cost, updated.vendorId || '', updated.locationId, updated.notes || '', updated.snoozed ? 'true' : 'false', updated.binLocation || '']] },
       });
       
       const newParts = parts.map(p => p.id === id ? updated : p);
@@ -1144,7 +1144,7 @@ const App = () => {
       // Clear the row data instead of deleting the dimension
       await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        range: `Parts Inventory!A${rowNum}:J${rowNum}`,
+        range: `Parts Inventory!A${rowNum}:K${rowNum}`,
       });
       
       const newParts = parts.filter(p => p.id !== id);
@@ -1741,9 +1741,9 @@ const App = () => {
           
           await window.gapi.client.sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'Parts Inventory!A:J',
+            range: 'Parts Inventory!A:K',
             valueInputOption: 'RAW',
-            resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId, newPart.locationId, newPart.notes, 'false']] },
+            resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId, newPart.locationId, newPart.notes, 'false', '']] },
           });
           
           newParts.push(newPart);
@@ -2827,6 +2827,7 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
             <tr>
               <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">PART NAME</th>
               <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">SKU</th>
+              <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">BIN</th>
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STOCK</th>
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">MIN</th>
               <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>
@@ -2846,6 +2847,13 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
                     {vendor && <div className="text-xs text-zinc-500">{vendor.name}</div>}
                   </td>
                   <td className="px-4 py-3 text-zinc-300">{p.sku}</td>
+                  <td className="px-4 py-3">
+                    {p.binLocation ? (
+                      <span className="px-2 py-1 text-xs font-black bg-zinc-700 text-zinc-300">{p.binLocation}</span>
+                    ) : (
+                      <span className="text-xs text-zinc-600">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-center text-white font-bold">{p.stock}</td>
                   <td className="px-4 py-3 text-center text-zinc-400">{p.minStock}</td>
                   <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(p.cost || 0).toFixed(2)}</td>
@@ -3618,7 +3626,7 @@ const VendorModal = ({ vendor, onClose, onSave }) => {
 
 // Part Modal - NEW IN SPRINT 2
 const PartModal = ({ part, vendors, onClose, onSave }) => {
-  const [form, setForm] = useState(part || { name: '', sku: '', stock: '0', minStock: '0', cost: '0', vendorId: '', notes: '' });
+  const [form, setForm] = useState(part || { name: '', sku: '', stock: '0', minStock: '0', cost: '0', vendorId: '', binLocation: '', notes: '' });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -3666,6 +3674,10 @@ const PartModal = ({ part, vendors, onClose, onSave }) => {
               <option value="">-- No Vendor --</option>
               {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">BIN LOCATION (optional)</label>
+            <input type="text" value={form.binLocation} onChange={e => setForm({...form, binLocation: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., Shelf A2, Bin 5" />
           </div>
           <div>
             <label className="block text-xs font-black text-teal-400 mb-2">NOTES</label>
