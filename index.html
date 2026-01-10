@@ -621,7 +621,7 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:I', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:J', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
@@ -641,7 +641,7 @@ const App = () => {
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
       setVendors(vend.map(r => ({ id: r[0], name: r[1], contact: r[2], phone: r[3], email: r[4], specialties: r[5], rate: r[6], notes: r[7] || '' })));
-      setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '' })));
+      setParts(part.map(r => ({ id: r[0], name: r[1], sku: r[2], stock: r[3], minStock: r[4], cost: r[5], vendorId: r[6], locationId: r[7], notes: r[8] || '', snoozed: r[9] === 'true' })));
       setPartsUsage(usage.map(r => ({ id: r[0], logId: r[1], partId: r[2], qty: r[3], cost: r[4], date: r[5] })));
       setScheduledTasks(sched.map(r => {
         let frequency = r[3];
@@ -697,15 +697,19 @@ const App = () => {
   const generateAlerts = (partData, schedData = [], warrantyData = []) => {
     const newAlerts = [];
     
-    // Low stock alerts
-    partData.forEach(r => {
-      const stock = parseInt(r[3] || 0);
-      const minStock = parseInt(r[4] || 0);
+    // Low stock alerts (skip snoozed parts)
+    parts.forEach(part => {
+      if (part.snoozed) return; // Skip snoozed parts
+      
+      const stock = parseInt(part.stock || 0);
+      const minStock = parseInt(part.minStock || 0);
       if (stock <= minStock) {
         newAlerts.push({
           type: stock === 0 ? 'error' : 'warning',
-          message: stock === 0 ? `OUT OF STOCK: ${r[1]}` : `Low Stock: ${r[1]} (${stock} left)`,
-          action: 'inventory'
+          message: stock === 0 ? `OUT OF STOCK: ${part.name}` : `Low Stock: ${part.name} (${stock} left)`,
+          action: 'inventory',
+          partId: part.id, // Add part ID for snooze functionality
+          partName: part.name
         });
       }
     });
@@ -943,13 +947,13 @@ const App = () => {
 
   // Parts CRUD
   const addPart = async (part) => {
-    const newPart = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, ...part };
+    const newPart = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, snoozed: false, ...part };
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Parts Inventory!A:I',
+        range: 'Parts Inventory!A:J',
         valueInputOption: 'RAW',
-        resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId || '', newPart.locationId, newPart.notes || '']] },
+        resource: { values: [[newPart.id, newPart.name, newPart.sku, newPart.stock, newPart.minStock, newPart.cost, newPart.vendorId || '', newPart.locationId, newPart.notes || '', 'false']] },
       });
       setParts([...parts, newPart]);
       setModal(null);
@@ -967,9 +971,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Parts Inventory!A${rowNum}:I${rowNum}`,
+        range: `Parts Inventory!A${rowNum}:J${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.name, updated.sku, updated.stock, updated.minStock, updated.cost, updated.vendorId || '', updated.locationId, updated.notes || '']] },
+        resource: { values: [[updated.id, updated.name, updated.sku, updated.stock, updated.minStock, updated.cost, updated.vendorId || '', updated.locationId, updated.notes || '', updated.snoozed ? 'true' : 'false']] },
       });
       
       const newParts = parts.map(p => p.id === id ? updated : p);
@@ -990,7 +994,7 @@ const App = () => {
       // Clear the row data instead of deleting the dimension
       await window.gapi.client.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        range: `Parts Inventory!A${rowNum}:I${rowNum}`,
+        range: `Parts Inventory!A${rowNum}:J${rowNum}`,
       });
       
       const newParts = parts.filter(p => p.id !== id);
@@ -1001,6 +1005,44 @@ const App = () => {
       setError('Failed to delete part');
     }
   };
+
+  const snoozePart = async (partId) => {
+    try {
+      const index = parts.findIndex(p => p.id === partId);
+      if (index === -1) return;
+      
+      const part = parts[index];
+      const newSnoozed = !part.snoozed;
+      const rowNum = index + 2;
+      
+      // Update snoozed status in column J
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Parts Inventory!J${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[newSnoozed ? 'true' : 'false']] },
+      });
+      
+      // Update local state
+      const updatedParts = parts.map(p => 
+        p.id === partId ? { ...p, snoozed: newSnoozed } : p
+      );
+      setParts(updatedParts);
+      
+      // Regenerate alerts
+      generateAlerts([], scheduledTasks, warranties);
+      
+    } catch (err) {
+      console.error('Snooze part error:', err);
+      setError('Failed to update alert');
+    }
+  };
+
+  // Expose snoozePart globally for dashboard alerts
+  useEffect(() => {
+    window.snoozePart = snoozePart;
+    return () => { delete window.snoozePart; };
+  }, [parts, scheduledTasks, warranties]);
 
   // Vendors CRUD
   const addVendor = async (vendor) => {
@@ -1833,8 +1875,17 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
           </h2>
           <div className="space-y-2">
             {alerts.slice(0, 5).map((alert, i) => (
-              <div key={i} className={`p-3 border-2 ${alert.type === 'error' ? 'bg-red-900 border-red-600' : 'bg-yellow-900 border-yellow-600'}`}>
-                <p className="text-white font-bold">{alert.message}</p>
+              <div key={i} className={`p-3 border-2 flex justify-between items-start ${alert.type === 'error' ? 'bg-red-900 border-red-600' : 'bg-yellow-900 border-yellow-600'}`}>
+                <p className="text-white font-bold flex-1">{alert.message}</p>
+                {alert.partId && (
+                  <button
+                    onClick={() => window.snoozePart && window.snoozePart(alert.partId)}
+                    className="ml-3 px-3 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-white border-2 border-zinc-600 font-bold whitespace-nowrap"
+                    title="Ignore this alert"
+                  >
+                    IGNORE
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -2266,9 +2317,20 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
           
           <div className="space-y-3 max-h-96 overflow-y-auto">
             {selectedEvents.map((event, i) => (
-              <div key={i} className="bg-zinc-900 border-2 border-zinc-700 p-3">
+              <button
+                key={i}
+                onClick={() => {
+                  if (event.type === 'repair') {
+                    setModal({ type: 'viewRepair', data: event.data });
+                  } else if (event.type === 'building') {
+                    setModal({ type: 'viewBuilding', data: event.data });
+                  }
+                  // Note: Scheduled tasks don't have a detail modal yet
+                }}
+                className="w-full bg-zinc-900 border-2 border-zinc-700 p-3 hover:border-teal-500 transition text-left"
+              >
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       {event.type === 'repair' && <div className="w-3 h-3 rounded-full bg-red-500" />}
                       {event.type === 'building' && <div className="w-3 h-3 rounded-full bg-blue-500" />}
@@ -2313,8 +2375,14 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
                       </div>
                     )}
                   </div>
+                  
+                  {(event.type === 'repair' || event.type === 'building') && (
+                    <div className="ml-3">
+                      <Icon name="chevron-right" size={16} className="text-zinc-500" />
+                    </div>
+                  )}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -2608,12 +2676,27 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
                   <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(p.cost || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-center text-zinc-400">{getUsageCount(p.id)}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-1 text-xs font-black ${status.color === 'red' ? 'bg-red-900 text-red-400' : status.color === 'yellow' ? 'bg-yellow-900 text-yellow-400' : 'bg-green-900 text-green-400'}`}>
-                      {status.label}
-                    </span>
+                    {p.snoozed ? (
+                      <span className="px-2 py-1 text-xs font-black bg-gray-800 text-gray-400 border border-gray-600">
+                        IGNORED
+                      </span>
+                    ) : (
+                      <span className={`px-2 py-1 text-xs font-black ${status.color === 'red' ? 'bg-red-900 text-red-400' : status.color === 'yellow' ? 'bg-yellow-900 text-yellow-400' : 'bg-green-900 text-green-400'}`}>
+                        {status.label}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex justify-center gap-2">
+                      {p.snoozed && (
+                        <button 
+                          onClick={() => window.snoozePart && window.snoozePart(p.id)} 
+                          className="text-yellow-400 hover:text-yellow-300" 
+                          title="Un-ignore alerts for this part"
+                        >
+                          <Icon name="bell" size={16} />
+                        </button>
+                      )}
                       <button onClick={() => onEdit(p)} className="text-teal-400 hover:text-teal-300" title="Edit">
                         <Icon name="edit" size={16} />
                       </button>
