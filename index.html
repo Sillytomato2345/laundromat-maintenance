@@ -188,7 +188,10 @@ const parseReceiptText = (text) => {
         
         console.log(`  ✓ Pattern 0.5: Name+Qty+Price on prev line: name="${name}", qty=${qty}, price=${price}`);
         
-        if (name && name.length > 2 && price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
+        // Check if SKU already found
+        if (items.some(item => item.sku === sku)) {
+          console.log(`  ✗ Pattern 0.5: SKU ${sku} already found, skipping duplicate`);
+        } else if (name && name.length > 2 && price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
           items.push({ sku, name, qty, price });
           console.log('✓✓ Pattern 0.5 match (name+qty+price on prev line):', { sku, name, qty, price });
           continue;
@@ -204,7 +207,10 @@ const parseReceiptText = (text) => {
         const name = prevLine;
         console.log(`  ✓ Qty/Price matched on next line: qty=${qtyPriceMatch[1]}, price=${qtyPriceMatch[2]}`);
         
-        if (name && name.length > 2) {
+        // Check if SKU already found
+        if (items.some(item => item.sku === sku)) {
+          console.log(`  ✗ Pattern 0: SKU ${sku} already found, skipping duplicate`);
+        } else if (name && name.length > 2) {
           const qty = parseInt(qtyPriceMatch[1]);
           const price = parseFloat(qtyPriceMatch[2]);
           
@@ -238,6 +244,11 @@ const parseReceiptText = (text) => {
       const qty = parseInt(pattern1[3]);
       const price = parseFloat(pattern1[4]);
       
+      if (items.some(item => item.sku === sku)) {
+        // SKU already found, skip
+        continue;
+      }
+      
       if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal)/i)) {
         items.push({ sku, name, qty, price });
         console.log('✓ Pattern 1 match:', { sku, name, qty, price });
@@ -255,6 +266,10 @@ const parseReceiptText = (text) => {
       const sku = pattern2[2];
       let name = pattern2[3].trim();
       const price = parseFloat(pattern2[4]);
+      
+      if (items.some(item => item.sku === sku)) {
+        continue; // SKU already found
+      }
       
       // Clean name - remove duplicate SKU if present
       name = name.replace(new RegExp(`^${sku}\\s*-?\\s*`), '').trim();
@@ -278,6 +293,10 @@ const parseReceiptText = (text) => {
       const qty = parseInt(pattern3[3]);
       const price = parseFloat(pattern3[4]);
       
+      if (items.some(item => item.sku === sku)) {
+        continue; // SKU already found
+      }
+      
       if (name && price > 0 && name.length > 3 && !name.match(/^(Total|Tax|Subtotal)/i)) {
         items.push({ sku, name, qty, price });
         console.log('✓ Pattern 3 match:', { sku, name, qty, price });
@@ -294,6 +313,10 @@ const parseReceiptText = (text) => {
       const sku = pattern4[2];
       let name = pattern4[3].trim();
       const price = parseFloat(pattern4[4]);
+      
+      if (items.some(item => item.sku === sku)) {
+        continue; // SKU already found
+      }
       
       name = name.replace(/\s*\|\s*Replaces Part.+$/, '').trim();
       
@@ -315,6 +338,10 @@ const parseReceiptText = (text) => {
       const price = parseFloat(pattern5[3]);
       const qty = 1; // Default to 1 if not specified
       
+      if (items.some(item => item.sku === sku)) {
+        continue; // SKU already found
+      }
+      
       // Clean name - remove any remaining SKU references
       name = name.replace(new RegExp(sku, 'g'), '').trim();
       name = name.replace(/^-\s*/, '').trim();
@@ -335,6 +362,10 @@ const parseReceiptText = (text) => {
       const sku = pattern6[2];
       let name = pattern6[3].trim();
       const price = parseFloat(pattern6[4]);
+      
+      if (items.some(item => item.sku === sku)) {
+        continue; // SKU already found
+      }
       
       // Clean name
       name = name.replace(new RegExp(sku, 'g'), '').trim();
