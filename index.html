@@ -180,24 +180,31 @@ const parseReceiptText = (text) => {
       
       // Pattern 0.5: Name + Qty + Price on PREVIOUS line
       // "Hose Washers 1  $8.95"
+      // BUT: Previous line must NOT start with a SKU (avoid duplicate with Pattern 1)
       const prevLineMatch = prevLine.match(/^(.+?)\s+(\d+)\s+\$\s*(\d+\.?\d*)$/);
-      if (prevLineMatch) {
+      
+      // Check if previous line starts with a SKU pattern (alphanumeric-dash combo)
+      const prevLineStartsWithSKU = prevLine.match(/^[A-Z0-9][A-Z0-9-]{3,}\s/);
+      
+      if (prevLineMatch && !prevLineStartsWithSKU) {
         const name = prevLineMatch[1].trim();
         const qty = parseInt(prevLineMatch[2]);
         const price = parseFloat(prevLineMatch[3]);
         
-        console.log(`  ✓ Pattern 0.5: Name+Qty+Price on prev line: name="${name}", qty=${qty}, price=${price}`);
+        console.log(`  ✓ Pattern 0.5: Name+Qty+Price on prev line (name-only format): name="${name}", qty=${qty}, price=${price}`);
         
         // Check if SKU already found
         if (items.some(item => item.sku === sku)) {
           console.log(`  ✗ Pattern 0.5: SKU ${sku} already found, skipping duplicate`);
         } else if (name && name.length > 2 && price > 0 && !name.match(/^(Order|Payment|Shipping|Items|Thank)/i)) {
           items.push({ sku, name, qty, price });
-          console.log('✓✓ Pattern 0.5 match (name+qty+price on prev line):', { sku, name, qty, price });
+          console.log('✓✓ Pattern 0.5 match (name-only with qty+price):', { sku, name, qty, price });
           continue;
         } else {
           console.log(`  ✗ Pattern 0.5 rejected: name.length=${name.length}, price=${price}, filter=${!!name.match(/^(Order|Payment|Shipping|Items|Thank)/i)}`);
         }
+      } else if (prevLineMatch && prevLineStartsWithSKU) {
+        console.log(`  ✗ Pattern 0.5: Prev line starts with SKU, skipping (will be caught by Pattern 1)`);
       }
       
       // Pattern 0: Qty + Price on NEXT line
