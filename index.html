@@ -66,6 +66,11 @@ const Icon = ({ name, size = 20, className = '' }) => {
     circle: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z",
     'check-circle': "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3",
     layers: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+    'file-text': "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+    settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z",
+    database: "M12 2C8 2 4 3 4 5v14c0 2 4 3 8 3s8-1 8-3V5c0-2-4-3-8-3zM4 9c0 2 4 3 8 3s8-1 8-3M4 14c0 2 4 3 8 3s8-1 8-3",
+    info: "M12 16v-4M12 8h.01M22 12c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2s10 4.477 10 10z",
+    'trash-2': "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6",
   };
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 };
@@ -99,7 +104,7 @@ const calculateAge = (purchaseDate) => {
   return (new Date() - new Date(purchaseDate)) / (1000 * 60 * 60 * 24 * 365);
 };
 
-// Validation helpers - Sprint 4.1
+/* Validation helpers - Simplified in Sprint 4.1
 const validateDate = (date, maxDate = new Date()) => {
   const d = new Date(date);
   if (isNaN(d.getTime())) return { valid: false, error: 'Invalid date' };
@@ -108,6 +113,10 @@ const validateDate = (date, maxDate = new Date()) => {
 };
 
 const validateNumber = (value, min = 0, max = Infinity, fieldName = 'Value') => {
+  // Allow empty string (optional field)
+  if (value === '' || value === null || value === undefined) {
+    return { valid: true };
+  }
   const num = parseFloat(value);
   if (isNaN(num)) return { valid: false, error: `${fieldName} must be a number` };
   if (num < min) return { valid: false, error: `${fieldName} must be at least ${min}` };
@@ -138,6 +147,7 @@ const getWarningIfHigh = (value, threshold, message) => {
   }
   return { warning: false };
 };
+*/
 
 const calculateROI = (machine, logs) => {
   const age = calculateAge(machine.purchaseDate);
@@ -681,10 +691,23 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G', 'Machine Notes!A2:E'],
+        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
-      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr, notes] = response.result.valueRanges.map(r => r.values || []);
+      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
+      
+      // Try to load Machine Notes (may not exist in older spreadsheets)
+      let notes = [];
+      try {
+        const notesResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: id,
+          range: 'Machine Notes!A2:E',
+        });
+        notes = notesResponse.result.values || [];
+      } catch (notesErr) {
+        console.log('Machine Notes sheet not found (this is OK for older spreadsheets)');
+        // Sheet doesn't exist yet - that's fine, we'll create it when needed
+      }
       
       setLocations(loc.map(r => ({ id: r[0], name: r[1], address: r[2] || '' })));
       setMachines(mach.map(r => ({ 
@@ -750,7 +773,8 @@ const App = () => {
 
       generateAlerts(part, sched, warr);
     } catch (err) {
-      setError('Failed to load: ' + err.message);
+      console.error('Load error:', err);
+      setError('Failed to load: ' + (err.message || err.toString() || 'Unknown error'));
     }
     setLoading(false);
   };
@@ -2683,6 +2707,17 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
           <p className="text-zinc-500 font-bold">NO MACHINES FOUND</p>
         </div>
       )}
+      
+      {/* Machine Notes Modal */}
+      {notesModal && (
+        <MachineNotesModal 
+          machine={notesModal} 
+          notes={machineNotes}
+          onClose={() => setNotesModal(null)}
+          onAddNote={onAddNote}
+          onDeleteNote={onDeleteNote}
+        />
+      )}
     </div>
   );
 };
@@ -3023,17 +3058,6 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
           <div className="text-center py-8 text-zinc-500 font-bold">NO REPAIR RECORDS</div>
         )}
       </div>
-      
-      {/* Machine Notes Modal */}
-      {notesModal && (
-        <MachineNotesModal 
-          machine={notesModal} 
-          notes={machineNotes}
-          onClose={() => setNotesModal(null)}
-          onAddNote={onAddNote}
-          onDeleteNote={onDeleteNote}
-        />
-      )}
     </div>
   );
 };
@@ -3644,49 +3668,37 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
   const [selectedParts, setSelectedParts] = useState([]);
   const [photoFiles, setPhotoFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
-  const [errors, setErrors] = useState({});
-  const [warnings, setWarnings] = useState({});
   const fileRef = useRef(null);
 
   const activeMachines = machines.filter(m => !m.archived);
+  
+  // Calculate costs (needed by validateForm)
+  const partsCost = selectedParts.reduce((sum, p) => sum + (parseFloat(p.qty || 0) * parseFloat(p.cost || 0)), 0);
+  const totalCost = partsCost + parseFloat(form.laborCost || 0);
 
-  // Validate form on change
+  // Simple validation - only check if required fields exist
   const validateForm = () => {
-    const newErrors = {};
-    const newWarnings = {};
-
-    // Validate required fields
-    const machineValidation = validateRequired(form.machineId, 'Machine');
-    if (!machineValidation.valid) newErrors.machineId = machineValidation.error;
-
-    const issueValidation = validateRequired(form.issue, 'Issue');
-    if (!issueValidation.valid) newErrors.issue = issueValidation.error;
-
-    const techValidation = validateRequired(form.tech, 'Technician');
-    if (!techValidation.valid) newErrors.tech = techValidation.error;
-
-    // Validate date
-    const dateValidation = validateDate(form.date);
-    if (!dateValidation.valid) newErrors.date = dateValidation.error;
-
-    // Validate numbers
-    const costValidation = validateNumber(form.laborCost, 0, Infinity, 'Labor cost');
-    if (!costValidation.valid) newErrors.laborCost = costValidation.error;
-
-    const hoursValidation = validateNumber(form.hours, 0, 24, 'Hours');
-    if (!hoursValidation.valid) newErrors.hours = hoursValidation.error;
-
-    // High cost warning
-    const costWarning = getWarningIfHigh(totalCost, 1000, 'This is a high-cost repair (>$1000). Please verify.');
-    if (costWarning.warning) newWarnings.totalCost = costWarning.message;
-
-    // High hours warning
-    const hoursWarning = getWarningIfHigh(form.hours, 8, 'Hours worked exceeds 8. Please verify.');
-    if (hoursWarning.warning) newWarnings.hours = hoursWarning.message;
-
-    setErrors(newErrors);
-    setWarnings(newWarnings);
-    return Object.keys(newErrors).length === 0;
+    if (!form.machineId) {
+      alert('Please select a machine');
+      return false;
+    }
+    if (!form.issue || form.issue.trim() === '') {
+      alert('Please enter an issue description');
+      return false;
+    }
+    if (!form.tech || form.tech.trim() === '') {
+      alert('Please enter a technician name');
+      return false;
+    }
+    
+    // Warn about high costs
+    if (totalCost > 1000) {
+      if (!window.confirm(`This is a high-cost repair ($${totalCost.toFixed(2)}). Continue?`)) {
+        return false;
+      }
+    }
+    
+    return true;
   };
 
   const addPart = () => {
@@ -3723,24 +3735,12 @@ const RepairModal = ({ machines, parts, onClose, onSave }) => {
     setPreviews(previews.filter((_, i) => i !== index));
   };
 
-  const partsCost = selectedParts.reduce((sum, p) => sum + (parseFloat(p.qty) * parseFloat(p.cost)), 0);
-  const totalCost = partsCost + parseFloat(form.laborCost || 0);
-
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Validate form
+    // Simple validation
     if (!validateForm()) {
-      alert('Please fix the errors before submitting.');
       return;
-    }
-
-    // Show warnings if any
-    if (Object.keys(warnings).length > 0) {
-      const warningMessages = Object.values(warnings).join('\n');
-      if (!window.confirm(`Warning:\n${warningMessages}\n\nDo you want to proceed?`)) {
-        return;
-      }
     }
 
     onSave(form, selectedParts, photoFiles);
