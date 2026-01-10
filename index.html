@@ -1618,6 +1618,7 @@ const App = () => {
               { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD' },
               { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT' },
               { id: 'repairs', icon: 'calendar', label: 'REPAIRS' },
+              { id: 'calendar', icon: 'calendar', label: 'CALENDAR' },
               { id: 'building', icon: 'home', label: 'BUILDING' },
               { id: 'vendors', icon: 'users', label: 'VENDORS' },
               { id: 'inventory', icon: 'package', label: 'INVENTORY' },
@@ -1676,6 +1677,15 @@ const App = () => {
             partsUsage={partsUsage}
             onAdd={() => setModal({ type: 'addRepair' })}
             onView={(log) => setModal({ type: 'viewRepair', data: log })}
+          />
+        )}
+        {activeTab === 'calendar' && (
+          <CalendarTab
+            equipmentLogs={currentLogs}
+            buildingLogs={currentBldg}
+            scheduledTasks={scheduledTasks}
+            machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)}
+            year={year}
           />
         )}
         {activeTab === 'building' && (
@@ -2039,6 +2049,251 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
       {Object.keys(groupedEquipment).length === 0 && (
         <div className="text-center py-12 bg-zinc-800 border-2 border-zinc-700">
           <p className="text-zinc-500 font-bold">NO MACHINES FOUND</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Calendar Tab - Month Grid View
+const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, year }) => {
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [selectedDate, setSelectedDate] = useState(null);
+  
+  // Get days in month
+  const getDaysInMonth = (month, year) => {
+    return new Date(year, month + 1, 0).getDate();
+  };
+  
+  // Get first day of month (0 = Sunday)
+  const getFirstDayOfMonth = (month, year) => {
+    return new Date(year, month, 1).getDay();
+  };
+  
+  // Get events for a specific date
+  const getEventsForDate = (date) => {
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+    
+    const repairs = equipmentLogs.filter(log => log.date === dateStr).map(log => ({
+      type: 'repair',
+      data: log,
+      machine: machines.find(m => m.id === log.machineId)
+    }));
+    
+    const building = buildingLogs.filter(log => log.date === dateStr).map(log => ({
+      type: 'building',
+      data: log
+    }));
+    
+    const scheduled = scheduledTasks.filter(task => {
+      if (!task.nextDue) return false;
+      return task.nextDue === dateStr;
+    }).map(task => ({
+      type: 'scheduled',
+      data: task,
+      machine: machines.find(m => m.id === task.machineId)
+    }));
+    
+    return [...repairs, ...building, ...scheduled];
+  };
+  
+  // Navigate months
+  const prevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(currentYear - 1);
+    } else {
+      setCurrentMonth(currentMonth - 1);
+    }
+  };
+  
+  const nextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(currentYear + 1);
+    } else {
+      setCurrentMonth(currentMonth + 1);
+    }
+  };
+  
+  const today = new Date();
+  const isToday = (date) => {
+    return date === today.getDate() && 
+           currentMonth === today.getMonth() && 
+           currentYear === today.getFullYear();
+  };
+  
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  
+  const daysInMonth = getDaysInMonth(currentMonth, currentYear);
+  const firstDay = getFirstDayOfMonth(currentMonth, currentYear);
+  
+  // Build calendar grid
+  const calendarDays = [];
+  
+  // Empty cells for days before month starts
+  for (let i = 0; i < firstDay; i++) {
+    calendarDays.push(null);
+  }
+  
+  // Days of month
+  for (let day = 1; day <= daysInMonth; day++) {
+    calendarDays.push(day);
+  }
+  
+  // Get events selected date
+  const selectedEvents = selectedDate ? getEventsForDate(selectedDate) : [];
+  
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
+          <Icon name="calendar" size={24} />
+          MAINTENANCE CALENDAR
+        </h2>
+        
+        <div className="flex items-center gap-3">
+          <button onClick={prevMonth} className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 font-bold border-2 border-zinc-700">
+            ← PREV
+          </button>
+          <div className="text-xl font-black text-white px-4">
+            {monthNames[currentMonth]} {currentYear}
+          </div>
+          <button onClick={nextMonth} className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 font-bold border-2 border-zinc-700">
+            NEXT →
+          </button>
+        </div>
+      </div>
+      
+      <div className="bg-zinc-800 border-2 border-zinc-700 p-4">
+        {/* Day headers */}
+        <div className="grid grid-cols-7 gap-2 mb-2">
+          {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+            <div key={day} className="text-center text-xs font-black text-teal-400 py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+        
+        {/* Calendar grid */}
+        <div className="grid grid-cols-7 gap-2">
+          {calendarDays.map((day, index) => {
+            if (day === null) {
+              return <div key={`empty-${index}`} className="aspect-square" />;
+            }
+            
+            const events = getEventsForDate(day);
+            const hasRepairs = events.some(e => e.type === 'repair');
+            const hasBuilding = events.some(e => e.type === 'building');
+            const hasScheduled = events.some(e => e.type === 'scheduled');
+            
+            return (
+              <button
+                key={day}
+                onClick={() => setSelectedDate(day)}
+                className={`aspect-square border-2 p-2 hover:border-teal-500 transition ${
+                  isToday(day) ? 'bg-teal-900 border-teal-500' : 
+                  selectedDate === day ? 'bg-zinc-700 border-teal-400' :
+                  'bg-zinc-900 border-zinc-700'
+                }`}
+              >
+                <div className="text-sm font-bold text-white">{day}</div>
+                <div className="flex gap-1 justify-center mt-1">
+                  {hasRepairs && <div className="w-2 h-2 rounded-full bg-red-500" title="Repair" />}
+                  {hasBuilding && <div className="w-2 h-2 rounded-full bg-blue-500" title="Building" />}
+                  {hasScheduled && <div className="w-2 h-2 rounded-full bg-green-500" title="Scheduled" />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      
+      {/* Legend */}
+      <div className="mt-4 flex gap-6 text-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-red-500" />
+          <span className="text-zinc-300">Equipment Repair</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-blue-500" />
+          <span className="text-zinc-300">Building Maintenance</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-green-500" />
+          <span className="text-zinc-300">Scheduled Maintenance</span>
+        </div>
+      </div>
+      
+      {/* Event details popup */}
+      {selectedDate && selectedEvents.length > 0 && (
+        <div className="mt-6 bg-zinc-800 border-2 border-teal-600 p-4">
+          <div className="flex justify-between mb-4">
+            <h3 className="text-xl font-black text-teal-400">
+              {monthNames[currentMonth]} {selectedDate}, {currentYear} - {selectedEvents.length} Event{selectedEvents.length !== 1 ? 's' : ''}
+            </h3>
+            <button onClick={() => setSelectedDate(null)} className="text-zinc-400 hover:text-white">
+              <Icon name="x" size={20} />
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {selectedEvents.map((event, i) => (
+              <div key={i} className="bg-zinc-900 border-2 border-zinc-700 p-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      {event.type === 'repair' && <div className="w-3 h-3 rounded-full bg-red-500" />}
+                      {event.type === 'building' && <div className="w-3 h-3 rounded-full bg-blue-500" />}
+                      {event.type === 'scheduled' && <div className="w-3 h-3 rounded-full bg-green-500" />}
+                      <span className="text-xs font-bold text-zinc-500 uppercase">
+                        {event.type === 'repair' ? 'Equipment Repair' : 
+                         event.type === 'building' ? 'Building Maintenance' : 
+                         'Scheduled Maintenance'}
+                      </span>
+                    </div>
+                    
+                    <p className="text-white font-bold">
+                      {event.machine?.name || event.data.category || 'Building'}
+                    </p>
+                    <p className="text-zinc-300 text-sm">{event.data.issue || event.data.description}</p>
+                    
+                    {event.type === 'repair' && (
+                      <div className="mt-2 flex gap-4 text-xs text-zinc-400">
+                        <span>Tech: {event.data.tech}</span>
+                        <span>Cost: ${parseFloat(event.data.cost || 0).toFixed(2)}</span>
+                        <span>Hours: {event.data.hours}</span>
+                      </div>
+                    )}
+                    
+                    {event.type === 'building' && (
+                      <div className="mt-2 flex gap-4 text-xs text-zinc-400">
+                        <span>Tech: {event.data.tech}</span>
+                        <span>Cost: ${parseFloat(event.data.cost || 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    
+                    {event.type === 'scheduled' && event.data.equipmentType && (
+                      <div className="mt-2 text-xs text-zinc-400">
+                        Bulk task for all {event.data.equipmentType}s
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {selectedDate && selectedEvents.length === 0 && (
+        <div className="mt-6 bg-zinc-800 border-2 border-zinc-700 p-4 text-center">
+          <p className="text-zinc-500">No events on {monthNames[currentMonth]} {selectedDate}, {currentYear}</p>
+          <button onClick={() => setSelectedDate(null)} className="mt-2 text-teal-400 hover:text-teal-300 text-sm">
+            Close
+          </button>
         </div>
       )}
     </div>
