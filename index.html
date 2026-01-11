@@ -36,7 +36,7 @@ const API_KEY = 'AIzaSyB2hlF42e4PTsRk1f8egPUcL4MGwYSZgxs';      // Should look l
 // ==================================================
 
 const DISCOVERY_DOCS = ['https://sheets.googleapis.com/$discovery/rest?version=v4', 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 const CONFIG_FILE_NAME = 'laundromat_pro_config.json';
 
 // ========== USER ROLES CONFIGURATION - SPRINT 5 ==========
@@ -597,6 +597,12 @@ const App = () => {
         scope: SCOPES,
         callback: async (response) => {
           if (!response.error) {
+            // Set the access token so gapi.client can use it
+            if (response.access_token) {
+              window.gapi.client.setToken({
+                access_token: response.access_token
+              });
+            }
             setIsSignedIn(true);
             await detectUserRole(); // Sprint 5: Detect user and role (now async)
             await loadFromCloud();
@@ -643,19 +649,21 @@ const App = () => {
           setCurrentUser(email);
           
           // Look up role
-          const role = USER_ROLES[email] || 'viewer'; // Default to viewer if not in list
+          const role = USER_ROLES[email] || 'viewer';
           setUserRole(role);
           
           console.log('✅ User authenticated:', email, '| Role:', ROLES[role].name);
           return role;
+        } else {
+          console.error('❌ Userinfo request failed:', response.status, response.statusText);
         }
       }
     } catch (err) {
       console.error('❌ Error detecting user role:', err);
-      setUserRole('viewer'); // Safe default
     }
     
     // Fallback
+    console.warn('⚠️ Could not detect user, defaulting to viewer');
     setUserRole('viewer');
     return 'viewer';
   };
