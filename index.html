@@ -597,16 +597,42 @@ const App = () => {
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: async (response) => {
-          if (!response.error) {
+          console.log('🔐 OAuth callback fired');
+          
+          if (response.error) {
+            console.error('❌ OAuth error:', response.error);
+            return;
+          }
+          
+          try {
+            console.log('✅ OAuth success, setting up...');
+            
             // Set the access token so gapi.client can use it
             if (response.access_token) {
               window.gapi.client.setToken({
                 access_token: response.access_token
               });
+              console.log('✅ Access token set');
+            } else {
+              console.warn('⚠️ No access token in response');
             }
+            
             setIsSignedIn(true);
-            await detectUserRole(); // Sprint 5: Detect user and role (now async)
+            console.log('✅ isSignedIn set to true');
+            
+            // Detect user role
+            console.log('🔍 Detecting user role...');
+            await detectUserRole();
+            console.log('✅ User role detected');
+            
+            // Load data from cloud
+            console.log('📂 Calling loadFromCloud...');
             await loadFromCloud();
+            console.log('✅ loadFromCloud completed');
+            
+          } catch (err) {
+            console.error('❌ Error in OAuth callback:', err);
+            setError('Failed to load data: ' + err.message);
           }
         },
       });
@@ -673,20 +699,26 @@ const App = () => {
   const permissions = ROLES[userRole] || ROLES.viewer;
 
   const loadFromCloud = async () => {
+    console.log('📂 loadFromCloud: Starting...');
     setSyncStatus('Loading...');
     try {
       // Step 1: Check appDataFolder for existing config
+      console.log('📂 loadFromCloud: Checking for existing config...');
       const response = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
         q: `name='${CONFIG_FILE_NAME}'`,
         fields: 'files(id)',
       });
+      console.log('📂 loadFromCloud: Config search result:', response.result.files?.length || 0, 'files');
 
       if (response.result.files?.length > 0) {
         // Found config - load existing spreadsheet
+        console.log('✅ loadFromCloud: Found existing config');
         const fileId = response.result.files[0].id;
         const configResponse = await window.gapi.client.drive.files.get({ fileId, alt: 'media' });
         const config = JSON.parse(configResponse.body);
+        console.log('✅ loadFromCloud: Config loaded, spreadsheet ID:', config.spreadsheetId);
+        
         setSpreadsheetId(config.spreadsheetId);
         setFolderId(config.folderId || null);
         
@@ -695,19 +727,24 @@ const App = () => {
           await setupFolderStructure(config.folderId);
         }
         
+        console.log('📊 loadFromCloud: Loading spreadsheet data...');
         await loadAllData(config.spreadsheetId);
+        console.log('✅ loadFromCloud: Data loaded successfully');
         
         // Load backup config and check if auto-backup needed
         await loadBackupConfig();
       } else {
         // Step 2: No config found - search for shared spreadsheets
-        console.log('No config found, searching for shared spreadsheets...');
+        console.log('❌ loadFromCloud: No config found');
+        console.log('🔍 loadFromCloud: Searching for shared spreadsheets...');
         
         const sharedSearch = await window.gapi.client.drive.files.list({
           q: "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and name contains 'Laundromat Maintenance'",
           fields: 'files(id, name, owners)',
           orderBy: 'modifiedTime desc',
         });
+        
+        console.log('🔍 loadFromCloud: Shared search found', sharedSearch.result.files?.length || 0, 'spreadsheets');
         
         if (sharedSearch.result.files?.length > 0) {
           // Found shared spreadsheet(s) - use the first one
@@ -716,24 +753,31 @@ const App = () => {
           console.log('📋 Owner:', sharedSheet.owners?.[0]?.emailAddress || 'Unknown');
           
           // Save this config to user's appDataFolder
+          console.log('💾 loadFromCloud: Saving config...');
           await saveToCloud(sharedSheet.id, null);
+          console.log('✅ loadFromCloud: Config saved');
           
           setSpreadsheetId(sharedSheet.id);
+          console.log('📊 loadFromCloud: Loading shared spreadsheet data...');
           await loadAllData(sharedSheet.id);
+          console.log('✅ loadFromCloud: Shared spreadsheet loaded');
           
           setSyncStatus('✅ Connected to shared spreadsheet');
           setTimeout(() => setSyncStatus(''), 3000);
         } else {
           // Step 3: No shared spreadsheet found - create new one
-          console.log('No shared spreadsheet found, creating new one...');
+          console.log('❌ loadFromCloud: No shared spreadsheet found');
+          console.log('🆕 loadFromCloud: Creating new spreadsheet...');
           await createSpreadsheet();
         }
       }
     } catch (err) {
-      console.error('Cloud sync error:', err);
-      setError('Cloud sync failed');
+      console.error('❌ loadFromCloud: Error:', err);
+      console.error('❌ loadFromCloud: Error details:', err.message, err.stack);
+      setError('Cloud sync failed: ' + err.message);
     }
     setSyncStatus('');
+    console.log('📂 loadFromCloud: Complete');
   };
 
   const saveToCloud = async (sheetId, folder) => {
