@@ -675,6 +675,7 @@ const App = () => {
   const loadFromCloud = async () => {
     setSyncStatus('Loading...');
     try {
+      // Step 1: Check appDataFolder for existing config
       const response = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
         q: `name='${CONFIG_FILE_NAME}'`,
@@ -682,6 +683,7 @@ const App = () => {
       });
 
       if (response.result.files?.length > 0) {
+        // Found config - load existing spreadsheet
         const fileId = response.result.files[0].id;
         const configResponse = await window.gapi.client.drive.files.get({ fileId, alt: 'media' });
         const config = JSON.parse(configResponse.body);
@@ -698,9 +700,37 @@ const App = () => {
         // Load backup config and check if auto-backup needed
         await loadBackupConfig();
       } else {
-        await createSpreadsheet();
+        // Step 2: No config found - search for shared spreadsheets
+        console.log('No config found, searching for shared spreadsheets...');
+        
+        const sharedSearch = await window.gapi.client.drive.files.list({
+          q: "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and name contains 'Laundromat Maintenance'",
+          fields: 'files(id, name, owners)',
+          orderBy: 'modifiedTime desc',
+        });
+        
+        if (sharedSearch.result.files?.length > 0) {
+          // Found shared spreadsheet(s) - use the first one
+          const sharedSheet = sharedSearch.result.files[0];
+          console.log('✅ Found shared spreadsheet:', sharedSheet.name);
+          console.log('📋 Owner:', sharedSheet.owners?.[0]?.emailAddress || 'Unknown');
+          
+          // Save this config to user's appDataFolder
+          await saveToCloud(sharedSheet.id, null);
+          
+          setSpreadsheetId(sharedSheet.id);
+          await loadAllData(sharedSheet.id);
+          
+          setSyncStatus('✅ Connected to shared spreadsheet');
+          setTimeout(() => setSyncStatus(''), 3000);
+        } else {
+          // Step 3: No shared spreadsheet found - create new one
+          console.log('No shared spreadsheet found, creating new one...');
+          await createSpreadsheet();
+        }
       }
     } catch (err) {
+      console.error('Cloud sync error:', err);
       setError('Cloud sync failed');
     }
     setSyncStatus('');
