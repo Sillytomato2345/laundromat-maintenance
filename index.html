@@ -782,10 +782,10 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:K', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G', 'Maintenance Requests!A2:J'],
+        ranges: ['Locations!A2:C', 'Machines!A2:K', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
-      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr, requests] = response.result.valueRanges.map(r => r.values || []);
+      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
       
       // Try to load Machine Notes (may not exist in older spreadsheets)
       let notes = [];
@@ -797,6 +797,19 @@ const App = () => {
         notes = notesResponse.result.values || [];
       } catch (notesErr) {
         console.log('Machine Notes sheet not found (this is OK for older spreadsheets)');
+        // Sheet doesn't exist yet - that's fine, we'll create it when needed
+      }
+      
+      // Try to load Maintenance Requests (Sprint 5 - may not exist in older spreadsheets)
+      let requests = [];
+      try {
+        const requestsResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: id,
+          range: 'Maintenance Requests!A2:J',
+        });
+        requests = requestsResponse.result.values || [];
+      } catch (requestsErr) {
+        console.log('Maintenance Requests sheet not found (this is OK for older spreadsheets)');
         // Sheet doesn't exist yet - that's fine, we'll create it when needed
       }
       
