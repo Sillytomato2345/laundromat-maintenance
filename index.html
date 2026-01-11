@@ -873,14 +873,30 @@ const App = () => {
   };
 
   const loadAllData = async (id) => {
+    console.log('📊 loadAllData: Starting with spreadsheet ID:', id);
     setLoading(true);
     try {
+      console.log('📊 loadAllData: Calling batchGet...');
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
         ranges: ['Locations!A2:C', 'Machines!A2:K', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
+      console.log('📊 loadAllData: batchGet response received');
+      console.log('📊 loadAllData: Number of ranges:', response.result.valueRanges?.length);
+      
       const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
+      
+      console.log('📊 loadAllData: Parsed data:');
+      console.log('  - Locations:', loc?.length || 0);
+      console.log('  - Machines:', mach?.length || 0);
+      console.log('  - Equipment Logs:', eqLog?.length || 0);
+      console.log('  - Building Logs:', bldLog?.length || 0);
+      console.log('  - Vendors:', vend?.length || 0);
+      console.log('  - Parts:', part?.length || 0);
+      console.log('  - Usage:', usage?.length || 0);
+      console.log('  - Scheduled:', sched?.length || 0);
+      console.log('  - Warranties:', warr?.length || 0);
       
       // Try to load Machine Notes (may not exist in older spreadsheets)
       let notes = [];
@@ -890,9 +906,9 @@ const App = () => {
           range: 'Machine Notes!A2:E',
         });
         notes = notesResponse.result.values || [];
+        console.log('📊 loadAllData: Machine Notes:', notes.length);
       } catch (notesErr) {
-        console.log('Machine Notes sheet not found (this is OK for older spreadsheets)');
-        // Sheet doesn't exist yet - that's fine, we'll create it when needed
+        console.log('📊 loadAllData: Machine Notes sheet not found (OK for older spreadsheets)');
       }
       
       // Try to load Maintenance Requests (Sprint 5 - may not exist in older spreadsheets)
@@ -903,11 +919,12 @@ const App = () => {
           range: 'Maintenance Requests!A2:J',
         });
         requests = requestsResponse.result.values || [];
+        console.log('📊 loadAllData: Maintenance Requests:', requests.length);
       } catch (requestsErr) {
-        console.log('Maintenance Requests sheet not found (this is OK for older spreadsheets)');
-        // Sheet doesn't exist yet - that's fine, we'll create it when needed
+        console.log('📊 loadAllData: Maintenance Requests sheet not found (OK for older spreadsheets)');
       }
       
+      console.log('📊 loadAllData: Setting state...');
       setLocations(loc.map(r => ({ id: r[0], name: r[1], address: r[2] || '' })));
       setMachines(mach.map(r => ({ 
         id: r[0], 
@@ -945,7 +962,6 @@ const App = () => {
         if (r[10]) {
           try {
             children = JSON.parse(r[10]);
-            console.log('Parsed children for task', r[0], ':', children);
           } catch (e) {
             console.error('Failed to parse children for task', r[0], ':', r[10], e);
             children = [];
@@ -984,12 +1000,18 @@ const App = () => {
         resolvedDate: r[9] || '' 
       })));
 
+      console.log('📊 loadAllData: State set successfully');
+      console.log('📊 loadAllData: Generating alerts...');
       generateAlerts(part, sched, warr);
+      console.log('✅ loadAllData: Completed successfully!');
     } catch (err) {
-      console.error('Load error:', err);
+      console.error('❌ loadAllData: ERROR:', err);
+      console.error('❌ loadAllData: Error message:', err.message);
+      console.error('❌ loadAllData: Error stack:', err.stack);
       setError('Failed to load: ' + (err.message || err.toString() || 'Unknown error'));
     }
     setLoading(false);
+    console.log('📊 loadAllData: Function complete, loading set to false');
   };
 
   const generateAlerts = (partData, schedData = [], warrantyData = []) => {
