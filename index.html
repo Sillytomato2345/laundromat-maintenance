@@ -1782,6 +1782,37 @@ const App = () => {
     };
 
     try {
+      // First, check if Machine Notes sheet exists, create if not
+      try {
+        await window.gapi.client.sheets.spreadsheets.get({
+          spreadsheetId,
+          ranges: ['Machine Notes!A1'],
+          fields: 'sheets.properties'
+        });
+      } catch (sheetErr) {
+        // Sheet doesn't exist, create it
+        console.log('Machine Notes sheet not found, creating...');
+        await window.gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: { title: 'Machine Notes' }
+              }
+            }]
+          }
+        });
+        
+        // Add header row
+        await window.gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: 'Machine Notes!A1:E1',
+          valueInputOption: 'RAW',
+          resource: { values: [['ID', 'MachineID', 'Date', 'Note', 'User']] }
+        });
+      }
+      
+      // Now add the note
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'Machine Notes!A:E',
@@ -1793,7 +1824,7 @@ const App = () => {
       return true;
     } catch (err) {
       console.error('Add note error:', err);
-      setError('Failed to add note');
+      setError('Failed to add note: ' + (err.message || err.toString()));
       return false;
     }
   };
@@ -1803,6 +1834,10 @@ const App = () => {
     
     try {
       const index = machineNotes.findIndex(n => n.id === id);
+      if (index === -1) {
+        console.error('Note not found');
+        return;
+      }
       const rowNum = index + 2;
       
       await window.gapi.client.sheets.spreadsheets.values.clear({
@@ -1813,7 +1848,7 @@ const App = () => {
       setMachineNotes(machineNotes.filter(n => n.id !== id));
     } catch (err) {
       console.error('Delete note error:', err);
-      setError('Failed to delete note');
+      setError('Failed to delete note: ' + (err.message || err.toString()));
     }
   };
 
