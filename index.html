@@ -702,7 +702,26 @@ const App = () => {
     console.log('📂 loadFromCloud: Starting...');
     setSyncStatus('Loading...');
     try {
-      // Step 1: Check appDataFolder for existing config
+      // SPRINT 5 FIX: For technicians, use hardcoded shared spreadsheet
+      // Auto-detect was unreliable, so we hardcode the ID for technicians
+      if (userRole === 'technician') {
+        const SHARED_SPREADSHEET_ID = '1_fUC0hWS8ZmqXkd6_-fMUKwDoW2pB7nYlKZVkBwy7zM';
+        console.log('👷 Technician role detected - using hardcoded shared spreadsheet');
+        console.log('📋 Shared spreadsheet ID:', SHARED_SPREADSHEET_ID);
+        
+        setSpreadsheetId(SHARED_SPREADSHEET_ID);
+        console.log('📊 loadFromCloud: Loading shared spreadsheet data...');
+        await loadAllData(SHARED_SPREADSHEET_ID);
+        console.log('✅ loadFromCloud: Shared spreadsheet loaded');
+        
+        setSyncStatus('✅ Connected to shared spreadsheet');
+        setTimeout(() => setSyncStatus(''), 3000);
+        setSyncStatus('');
+        console.log('📂 loadFromCloud: Complete');
+        return;
+      }
+      
+      // For owners/managers/viewers, use normal config flow
       console.log('📂 loadFromCloud: Checking for existing config...');
       const response = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
@@ -734,46 +753,15 @@ const App = () => {
         // Load backup config and check if auto-backup needed
         await loadBackupConfig();
       } else {
-        // Step 2: No config found - search for shared spreadsheets
+        // No config found - create new spreadsheet (owners only)
         console.log('❌ loadFromCloud: No config found');
-        console.log('🔍 loadFromCloud: Searching for shared spreadsheets...');
-        
-        const sharedSearch = await window.gapi.client.drive.files.list({
-          q: "mimeType='application/vnd.google-apps.spreadsheet' and sharedWithMe=true and name contains 'Laundromat Maintenance'",
-          fields: 'files(id, name, owners)',
-          orderBy: 'modifiedTime desc',
-        });
-        
-        console.log('🔍 loadFromCloud: Shared search found', sharedSearch.result.files?.length || 0, 'spreadsheets');
-        
-        if (sharedSearch.result.files?.length > 0) {
-          // Found shared spreadsheet(s) - use the first one
-          const sharedSheet = sharedSearch.result.files[0];
-          console.log('✅ Found shared spreadsheet:', sharedSheet.name);
-          console.log('📋 Owner:', sharedSheet.owners?.[0]?.emailAddress || 'Unknown');
-          
-          // Save this config to user's appDataFolder
-          console.log('💾 loadFromCloud: Saving config...');
-          await saveToCloud(sharedSheet.id, null);
-          console.log('✅ loadFromCloud: Config saved');
-          
-          setSpreadsheetId(sharedSheet.id);
-          console.log('📊 loadFromCloud: Loading shared spreadsheet data...');
-          await loadAllData(sharedSheet.id);
-          console.log('✅ loadFromCloud: Shared spreadsheet loaded');
-          
-          setSyncStatus('✅ Connected to shared spreadsheet');
-          setTimeout(() => setSyncStatus(''), 3000);
-        } else {
-          // Step 3: No shared spreadsheet found - create new one
-          console.log('❌ loadFromCloud: No shared spreadsheet found');
-          console.log('🆕 loadFromCloud: Creating new spreadsheet...');
-          await createSpreadsheet();
-        }
+        console.log('🆕 loadFromCloud: Creating new spreadsheet...');
+        await createSpreadsheet();
       }
     } catch (err) {
       console.error('❌ loadFromCloud: Error:', err);
-      console.error('❌ loadFromCloud: Error details:', err.message, err.stack);
+      console.error('❌ loadFromCloud: Error message:', err.message);
+      console.error('❌ loadFromCloud: Error stack:', err.stack);
       setError('Cloud sync failed: ' + err.message);
     }
     setSyncStatus('');
@@ -2807,8 +2795,16 @@ const App = () => {
 
 // Dashboard Component (from Sprint 1 - enhanced)
 const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year, maintenanceRequests = [], permissions, onSubmitRequest, onViewRequest }) => {
+  // DEBUG: Log what props Dashboard is receiving
+  console.log('📊 Dashboard: Rendering with', machines?.length || 0, 'machines');
+  console.log('📊 Dashboard: equipmentLogs:', equipmentLogs?.length || 0);
+  console.log('📊 Dashboard: buildingLogs:', buildingLogs?.length || 0);
+  console.log('📊 Dashboard: parts:', parts?.length || 0);
+  
   const today = new Date();
   const activeMachines = machines.filter(m => !m.archived);
+  
+  console.log('📊 Dashboard: activeMachines after filter:', activeMachines.length);
   
   const thisMonth = equipmentLogs.filter(l => {
     const d = new Date(l.date);
@@ -3333,6 +3329,11 @@ const MachineNotesModal = ({ machine, notes, onClose, onAddNote, onDeleteNote })
 
 // Equipment Tab with ARCHIVE feature and NESTED GROUPING
 const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote, permissions, onMarkOutOfOrder }) => {
+  // DEBUG: Log what props we're receiving
+  console.log('🔧 EquipmentTab: Rendering with', machines?.length || 0, 'machines');
+  console.log('🔧 EquipmentTab: showArchived:', showArchived);
+  console.log('🔧 EquipmentTab: year:', year);
+  
   const [search, setSearch] = useState('');
   const [expandedTypes, setExpandedTypes] = useState({});
   const [expandedModels, setExpandedModels] = useState({});
@@ -3342,6 +3343,8 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
     m.name?.toLowerCase().includes(search.toLowerCase()) ||
     m.model?.toLowerCase().includes(search.toLowerCase())
   );
+  
+  console.log('🔧 EquipmentTab: After search filter:', filtered.length, 'machines');
 
   // Group equipment by Type → Model
   const groupedEquipment = filtered.reduce((groups, machine) => {
