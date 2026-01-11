@@ -39,6 +39,64 @@ const DISCOVERY_DOCS = ['https://sheets.googleapis.com/$discovery/rest?version=v
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file';
 const CONFIG_FILE_NAME = 'laundromat_pro_config.json';
 
+// ========== USER ROLES CONFIGURATION - SPRINT 5 ==========
+// Add your team members' emails and their roles here
+const USER_ROLES = {
+  // Example: 'yourname@gmail.com': 'owner',
+  // Example: 'manager@company.com': 'manager',
+  // Example: 'tech1@company.com': 'technician',
+  // Example: 'accountant@cpa.com': 'viewer',
+};
+
+// Role definitions
+const ROLES = {
+  owner: {
+    name: 'Owner',
+    canView: true,
+    canEdit: true,
+    canDelete: true,
+    canSeeCosts: true,
+    canManageBackups: true,
+    canExport: true,
+    canSubmitRequests: true,
+    canMarkOutOfOrder: true,
+  },
+  manager: {
+    name: 'Manager',
+    canView: true,
+    canEdit: true,
+    canDelete: false,
+    canSeeCosts: true,
+    canManageBackups: false,
+    canExport: true,
+    canSubmitRequests: true,
+    canMarkOutOfOrder: true,
+  },
+  technician: {
+    name: 'Technician',
+    canView: true,
+    canEdit: false,
+    canDelete: false,
+    canSeeCosts: false,
+    canManageBackups: false,
+    canExport: false,
+    canSubmitRequests: true,
+    canMarkOutOfOrder: true,
+  },
+  viewer: {
+    name: 'Viewer',
+    canView: true,
+    canEdit: false,
+    canDelete: false,
+    canSeeCosts: true,
+    canManageBackups: false,
+    canExport: true,
+    canSubmitRequests: false,
+    canMarkOutOfOrder: false,
+  },
+};
+// ========================================================
+
 // Icons
 const Icon = ({ name, size = 20, className = '' }) => {
   const paths = {
@@ -490,6 +548,8 @@ const fuzzyMatch = (search, target) => {
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null); // Sprint 5: User email
+  const [userRole, setUserRole] = useState('viewer'); // Sprint 5: User role (default to viewer)
   const [spreadsheetId, setSpreadsheetId] = useState(null);
   const [folderId, setFolderId] = useState(null);
   const [folderStructure, setFolderStructure] = useState(null); // Stores subfolder IDs
@@ -505,6 +565,7 @@ const App = () => {
   const [maintenanceHistory, setMaintenanceHistory] = useState([]);
   const [warranties, setWarranties] = useState([]);
   const [machineNotes, setMachineNotes] = useState([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState([]); // Sprint 5
   
   const [year, setYear] = useState(new Date().getFullYear());
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -536,6 +597,7 @@ const App = () => {
         callback: async (response) => {
           if (!response.error) {
             setIsSignedIn(true);
+            detectUserRole(); // Sprint 5: Detect user and role
             await loadFromCloud();
           }
         },
@@ -561,6 +623,33 @@ const App = () => {
     await window.gapi.client.init({ apiKey: API_KEY, discoveryDocs: DISCOVERY_DOCS });
     setIsInitializing(false);
   };
+
+  // Sprint 5: Detect current user and their role
+  const detectUserRole = () => {
+    try {
+      // Get user info from Google OAuth
+      const authInstance = window.gapi.auth2?.getAuthInstance();
+      if (authInstance && authInstance.isSignedIn.get()) {
+        const profile = authInstance.currentUser.get().getBasicProfile();
+        const email = profile.getEmail();
+        setCurrentUser(email);
+        
+        // Look up role
+        const role = USER_ROLES[email] || 'viewer'; // Default to viewer if not in list
+        setUserRole(role);
+        
+        console.log('User detected:', email, '- Role:', ROLES[role].name);
+        return role;
+      }
+    } catch (err) {
+      console.error('Error detecting user role:', err);
+      setUserRole('viewer'); // Safe default
+    }
+    return 'viewer';
+  };
+
+  // Sprint 5: Get permissions for current user
+  const permissions = ROLES[userRole] || ROLES.viewer;
 
   const loadFromCloud = async () => {
     setSyncStatus('Loading...');
@@ -643,6 +732,7 @@ const App = () => {
           { properties: { title: 'Scheduled Maintenance' } },
           { properties: { title: 'Warranties' } },
           { properties: { title: 'Machine Notes' } },
+          { properties: { title: 'Maintenance Requests' } },
         ],
       },
     });
@@ -663,7 +753,7 @@ const App = () => {
         valueInputOption: 'RAW',
         data: [
           { range: 'Locations!A1', values: [['ID', 'Name', 'Address']] },
-          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate', 'Archived', 'PurchasePrice']] },
+          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate', 'Archived', 'PurchasePrice', 'Status', 'OutOfOrderReason']] },
           { range: 'Equipment Logs!A1', values: [['ID', 'LocationID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'PartsUsed', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Building Logs!A1', values: [['ID', 'LocationID', 'Date', 'Category', 'Issue', 'Tech', 'Cost', 'Hours', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Vendors!A1', values: [['ID', 'Name', 'Contact', 'Phone', 'Email', 'Specialties', 'Rate', 'Notes']] },
@@ -672,6 +762,7 @@ const App = () => {
           { range: 'Scheduled Maintenance!A1', values: [['ID', 'MachineID', 'Task', 'Frequency', 'LastCompleted', 'NextDue', 'Notes', 'Active', 'Type', 'Location', 'Children', 'EquipmentType']] },
           { range: 'Warranties!A1', values: [['ID', 'MachineID', 'StartDate', 'EndDate', 'Provider', 'Coverage', 'Notes']] },
           { range: 'Machine Notes!A1', values: [['ID', 'MachineID', 'Date', 'Note', 'User']] },
+          { range: 'Maintenance Requests!A1', values: [['ID', 'MachineID', 'SubmittedBy', 'SubmittedDate', 'Issue', 'Urgency', 'Status', 'AssignedTo', 'Notes', 'ResolvedDate']] },
         ],
       },
     });
@@ -691,10 +782,10 @@ const App = () => {
     try {
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:I', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:K', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G', 'Maintenance Requests!A2:J'],
       });
       
-      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr] = response.result.valueRanges.map(r => r.values || []);
+      const [loc, mach, eqLog, bldLog, vend, part, usage, sched, warr, requests] = response.result.valueRanges.map(r => r.values || []);
       
       // Try to load Machine Notes (may not exist in older spreadsheets)
       let notes = [];
@@ -719,7 +810,9 @@ const App = () => {
         type: r[5], 
         purchaseDate: r[6] || '', 
         archived: r[7] === 'true',
-        purchasePrice: r[8] || ''
+        purchasePrice: r[8] || '',
+        status: r[9] || 'In Service', // Sprint 5: Default to 'In Service'
+        outOfOrderReason: r[10] || '' // Sprint 5
       })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
@@ -770,6 +863,18 @@ const App = () => {
       }));
       setWarranties(warr.map(r => ({ id: r[0], machineId: r[1], startDate: r[2], endDate: r[3], provider: r[4], coverage: r[5] || '', notes: r[6] || '' })));
       setMachineNotes(notes.map(r => ({ id: r[0], machineId: r[1], date: r[2], note: r[3], user: r[4] || 'User' })));
+      setMaintenanceRequests(requests.map(r => ({ 
+        id: r[0], 
+        machineId: r[1], 
+        submittedBy: r[2], 
+        submittedDate: r[3], 
+        issue: r[4], 
+        urgency: r[5] || 'Medium', 
+        status: r[6] || 'Pending', 
+        assignedTo: r[7] || '', 
+        notes: r[8] || '', 
+        resolvedDate: r[9] || '' 
+      })));
 
       generateAlerts(part, sched, warr);
     } catch (err) {
@@ -973,13 +1078,20 @@ const App = () => {
 
   // CRUD Operations
   const addMachine = async (machine) => {
-    const newMachine = { id: Date.now().toString(), locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, ...machine, archived: false };
+    const newMachine = { 
+      id: Date.now().toString(), 
+      locationId: selectedLocation === 'all' ? locations[0]?.id : selectedLocation, 
+      ...machine, 
+      archived: false,
+      status: 'In Service', // Sprint 5: Default status
+      outOfOrderReason: '' // Sprint 5
+    };
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Machines!A:I',
+        range: 'Machines!A:K',
         valueInputOption: 'RAW',
-        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false', newMachine.purchasePrice || '']] },
+        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false', newMachine.purchasePrice || '', newMachine.status, newMachine.outOfOrderReason]] },
       });
       setMachines([...machines, newMachine]);
       setModal(null);
@@ -996,9 +1108,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Machines!A${rowNum}:I${rowNum}`,
+        range: `Machines!A${rowNum}:K${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false', updated.purchasePrice || '']] },
+        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false', updated.purchasePrice || '', updated.status || 'In Service', updated.outOfOrderReason || '']] },
       });
       
       setMachines(machines.map(m => m.id === id ? updated : m));
@@ -2011,6 +2123,192 @@ const App = () => {
     await saveBackupConfig(remainingBackups, lastBackupTime);
   };
 
+  // Maintenance Request Functions - Sprint 5 Step 3
+  const submitMaintenanceRequest = async (requestForm) => {
+    const newRequest = {
+      id: Date.now().toString(),
+      machineId: requestForm.machineId,
+      submittedBy: currentUser || 'User',
+      submittedDate: new Date().toISOString(),
+      issue: requestForm.issue.trim(),
+      urgency: requestForm.urgency,
+      status: 'Pending',
+      assignedTo: '',
+      notes: requestForm.notes.trim(),
+      resolvedDate: ''
+    };
+
+    try {
+      // Create sheet if it doesn't exist
+      try {
+        await window.gapi.client.sheets.spreadsheets.get({
+          spreadsheetId,
+          ranges: ['Maintenance Requests!A1'],
+          fields: 'sheets.properties'
+        });
+      } catch (sheetErr) {
+        console.log('Maintenance Requests sheet not found, creating...');
+        await window.gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: { title: 'Maintenance Requests' }
+              }
+            }]
+          }
+        });
+        
+        await window.gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: 'Maintenance Requests!A1:J1',
+          valueInputOption: 'RAW',
+          resource: { values: [['ID', 'MachineID', 'SubmittedBy', 'SubmittedDate', 'Issue', 'Urgency', 'Status', 'AssignedTo', 'Notes', 'ResolvedDate']] }
+        });
+      }
+      
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: 'Maintenance Requests!A:J',
+        valueInputOption: 'RAW',
+        resource: { values: [[
+          newRequest.id,
+          newRequest.machineId,
+          newRequest.submittedBy,
+          newRequest.submittedDate,
+          newRequest.issue,
+          newRequest.urgency,
+          newRequest.status,
+          newRequest.assignedTo,
+          newRequest.notes,
+          newRequest.resolvedDate
+        ]] },
+      });
+      
+      setMaintenanceRequests([...maintenanceRequests, newRequest]);
+      setSyncStatus('Request submitted successfully!');
+      setTimeout(() => setSyncStatus(''), 3000);
+      return true;
+    } catch (err) {
+      console.error('Submit request error:', err);
+      setError('Failed to submit request: ' + (err.message || err.toString()));
+      return false;
+    }
+  };
+
+  const updateMaintenanceRequest = async (id, updates) => {
+    try {
+      const index = maintenanceRequests.findIndex(r => r.id === id);
+      if (index === -1) return false;
+      
+      const updated = { ...maintenanceRequests[index], ...updates };
+      const rowNum = index + 2;
+      
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `Maintenance Requests!A${rowNum}:J${rowNum}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[
+          updated.id,
+          updated.machineId,
+          updated.submittedBy,
+          updated.submittedDate,
+          updated.issue,
+          updated.urgency,
+          updated.status,
+          updated.assignedTo,
+          updated.notes,
+          updated.resolvedDate
+        ]] },
+      });
+      
+      setMaintenanceRequests(maintenanceRequests.map(r => r.id === id ? updated : r));
+      return true;
+    } catch (err) {
+      console.error('Update request error:', err);
+      setError('Failed to update request');
+      return false;
+    }
+  };
+
+  // Mark Machine Out of Order - Sprint 5 Step 4
+  const markMachineOutOfOrder = async (machineId, reason, notes) => {
+    try {
+      const updates = {
+        status: 'Out of Order',
+        outOfOrderReason: reason + (notes ? `: ${notes}` : '')
+      };
+      
+      await updateMachine(machineId, updates);
+      setSyncStatus('Machine marked out of order');
+      setTimeout(() => setSyncStatus(''), 3000);
+      return true;
+    } catch (err) {
+      console.error('Mark out of order error:', err);
+      setError('Failed to mark machine out of order');
+      return false;
+    }
+  };
+
+  const markMachineInService = async (machineId) => {
+    try {
+      const updates = {
+        status: 'In Service',
+        outOfOrderReason: ''
+      };
+      
+      await updateMachine(machineId, updates);
+      setSyncStatus('Machine marked back in service');
+      setTimeout(() => setSyncStatus(''), 3000);
+      return true;
+    } catch (err) {
+      console.error('Mark in service error:', err);
+      setError('Failed to mark machine in service');
+      return false;
+    }
+  };
+
+  // Resolve Request - Sprint 5 Step 7
+  const resolveMaintenanceRequest = async (requestId) => {
+    const notes = prompt('Resolution notes (optional):');
+    if (notes === null) return; // User cancelled
+    
+    const success = await updateMaintenanceRequest(requestId, {
+      status: 'Resolved',
+      resolvedDate: new Date().toISOString(),
+      notes: notes || ''
+    });
+    
+    if (success) {
+      setSyncStatus('Request marked as resolved');
+      setTimeout(() => setSyncStatus(''), 3000);
+    }
+  };
+
+  // Convert Request to Repair - Sprint 5 Step 7
+  const convertRequestToRepair = (request) => {
+    const machine = machines.find(m => m.id === request.machineId);
+    if (!machine) {
+      alert('Machine not found');
+      return;
+    }
+    
+    // Update request status to In Progress
+    updateMaintenanceRequest(request.id, { status: 'In Progress' });
+    
+    // Open repair modal with prefilled data
+    setModal({
+      type: 'addRepair',
+      data: {
+        prefill: {
+          machineId: request.machineId,
+          issue: request.issue,
+          notes: `From request #${request.id} by ${request.submittedBy}\n${request.notes || ''}`
+        }
+      }
+    });
+  };
+
   // Import Parts from Receipt (PDF)
   const importPartsFromReceipt = async (items, pdfFile = null) => {
     setSyncStatus('Importing parts...');
@@ -2168,18 +2466,19 @@ const App = () => {
           
           <div ref={tabScrollRef} className="flex gap-2 mt-4 border-t-2 border-slate-500 pt-4 overflow-x-auto horizontal-scroll">
             {[
-              { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD' },
-              { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT' },
-              { id: 'repairs', icon: 'calendar', label: 'REPAIRS' },
-              { id: 'calendar', icon: 'calendar', label: 'CALENDAR' },
-              { id: 'building', icon: 'home', label: 'BUILDING' },
-              { id: 'vendors', icon: 'users', label: 'VENDORS' },
-              { id: 'inventory', icon: 'package', label: 'INVENTORY' },
-              { id: 'scheduled', icon: 'clock', label: 'SCHEDULED' },
-              { id: 'warranties', icon: 'shield', label: 'WARRANTIES' },
-              { id: 'reports', icon: 'chart', label: 'REPORTS' },
-              { id: 'settings', icon: 'settings', label: 'SETTINGS' },
-            ].map(tab => (
+              { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD', requiresPermission: null },
+              { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT', requiresPermission: null },
+              { id: 'repairs', icon: 'calendar', label: 'REPAIRS', requiresPermission: 'canView' },
+              { id: 'calendar', icon: 'calendar', label: 'CALENDAR', requiresPermission: 'canView' },
+              { id: 'building', icon: 'home', label: 'BUILDING', requiresPermission: 'canView' },
+              { id: 'vendors', icon: 'users', label: 'VENDORS', requiresPermission: 'canEdit' },
+              { id: 'inventory', icon: 'package', label: 'INVENTORY', requiresPermission: 'canView' },
+              { id: 'scheduled', icon: 'clock', label: 'SCHEDULED', requiresPermission: 'canView' },
+              { id: 'warranties', icon: 'shield', label: 'WARRANTIES', requiresPermission: 'canView' },
+              { id: 'requests', icon: 'alert', label: 'REQUESTS', requiresPermission: 'canEdit' },
+              { id: 'reports', icon: 'chart', label: 'REPORTS', requiresPermission: 'canView' },
+              { id: 'settings', icon: 'settings', label: 'SETTINGS', requiresPermission: 'canManageBackups' },
+            ].filter(tab => !tab.requiresPermission || permissions[tab.requiresPermission]).map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
                 <Icon name={tab.icon} size={18} />
                 {tab.label}
@@ -2207,6 +2506,10 @@ const App = () => {
             buildingLogs={currentBldg.filter(l => new Date(l.date).getFullYear() === year)}
             parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)}
             year={year}
+            maintenanceRequests={maintenanceRequests}
+            permissions={permissions}
+            onSubmitRequest={() => setModal({ type: 'submitRequest' })}
+            onViewRequest={(request) => setModal({ type: 'viewRequest', data: request })}
           />
         )}
         {activeTab === 'equipment' && (
@@ -2224,6 +2527,8 @@ const App = () => {
             machineNotes={machineNotes}
             onAddNote={addMachineNote}
             onDeleteNote={deleteMachineNote}
+            permissions={permissions}
+            onMarkOutOfOrder={(machine) => setModal({ type: 'outOfOrder', data: machine })}
           />
         )}
         {activeTab === 'repairs' && (
@@ -2234,6 +2539,7 @@ const App = () => {
             partsUsage={partsUsage}
             onAdd={() => setModal({ type: 'addRepair' })}
             onView={(log) => setModal({ type: 'viewRepair', data: log })}
+            permissions={permissions}
           />
         )}
         {activeTab === 'calendar' && (
@@ -2253,6 +2559,7 @@ const App = () => {
             logs={currentBldg.filter(l => new Date(l.date).getFullYear() === year)}
             onAdd={() => setModal({ type: 'addBuilding' })}
             onView={(log) => setModal({ type: 'viewBuilding', data: log })}
+            permissions={permissions}
           />
         )}
         {activeTab === 'vendors' && (
@@ -2274,6 +2581,16 @@ const App = () => {
             onEdit={(part) => setModal({ type: 'editPart', data: part })}
             onDelete={deletePart}
             onImport={() => setModal({ type: 'importReceipt' })}
+            permissions={permissions}
+          />
+        )}
+        {activeTab === 'requests' && (
+          <RequestManagementTab
+            requests={maintenanceRequests}
+            machines={machines}
+            onResolve={resolveMaintenanceRequest}
+            onConvert={convertRequestToRepair}
+            permissions={permissions}
           />
         )}
         {activeTab === 'reports' && (
@@ -2332,7 +2649,7 @@ const App = () => {
 
       {modal?.type === 'addMachine' && <MachineModal onClose={() => setModal(null)} onSave={addMachine} />}
       {modal?.type === 'editMachine' && <MachineModal machine={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateMachine(modal.data.id, updates)} />}
-      {modal?.type === 'addRepair' && <RepairModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={addEquipmentLog} />}
+      {modal?.type === 'addRepair' && <RepairModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} parts={parts.filter(p => selectedLocation === 'all' || p.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={addEquipmentLog} prefill={modal.data?.prefill} />}
       {modal?.type === 'addBuilding' && <BuildingModal onClose={() => setModal(null)} onSave={addBuildingLog} />}
       {modal?.type === 'addVendor' && <VendorModal onClose={() => setModal(null)} onSave={addVendor} />}
       {modal?.type === 'editVendor' && <VendorModal vendor={modal.data} onClose={() => setModal(null)} onSave={(updates) => updateVendor(modal.data.id, updates)} />}
@@ -2351,12 +2668,15 @@ const App = () => {
       {modal?.type === 'bulkSchedule' && <BulkScheduleModal machines={machines.filter(m => selectedLocation === 'all' || m.locationId === selectedLocation)} onClose={() => setModal(null)} onSave={createBulkSchedule} />}
       {/* {modal?.type === 'maintenanceHistory' && <MaintenanceHistoryModal history={maintenanceHistory} onClose={() => setModal(null)} onExport={exportHistory} />} */}
       {modal?.type === 'importReceipt' && <ImportReceiptModal parts={parts} vendors={vendors} onClose={() => setModal(null)} onImport={importPartsFromReceipt} />}
+      {/* Sprint 5 Modals */}
+      {modal?.type === 'submitRequest' && <MaintenanceRequestModal machines={machines} currentUser={currentUser} onClose={() => setModal(null)} onSubmit={submitMaintenanceRequest} />}
+      {modal?.type === 'outOfOrder' && modal.data && <OutOfOrderModal machine={modal.data} onClose={() => setModal(null)} onSave={markMachineOutOfOrder} />}
     </div>
   );
 };
 
 // Dashboard Component (from Sprint 1 - enhanced)
-const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year }) => {
+const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year, maintenanceRequests = [], permissions, onSubmitRequest, onViewRequest }) => {
   const today = new Date();
   const activeMachines = machines.filter(m => !m.archived);
   
@@ -2377,8 +2697,94 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
     return acc + age;
   }, 0) / activeMachines.filter(m => m.purchaseDate).length || 0;
 
+  // Sprint 5: Request and out-of-order calculations
+  const pendingRequests = maintenanceRequests.filter(r => r.status === 'Pending');
+  const highPriorityRequests = pendingRequests.filter(r => r.urgency === 'High');
+  const outOfOrderMachines = machines.filter(m => !m.archived && m.status === 'Out of Order');
+
   return (
     <div className="space-y-6">
+      {/* Sprint 5: Technician Quick Actions */}
+      {permissions.canSubmitRequests && !permissions.canEdit && (
+        <div className="bg-gradient-to-r from-orange-900 to-orange-800 border-4 border-orange-600 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-black text-white mb-2">🔧 NEED MAINTENANCE?</h2>
+              <p className="text-orange-200">Submit a request or mark a machine out of order</p>
+            </div>
+            <button
+              onClick={onSubmitRequest}
+              className="bg-white hover:bg-orange-100 text-orange-900 px-8 py-4 font-black border-4 border-orange-700 text-lg flex items-center gap-2"
+            >
+              <Icon name="plus" size={24} />
+              SUBMIT REQUEST
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sprint 5: Owner/Manager - Pending Requests Widget */}
+      {permissions.canEdit && pendingRequests.length > 0 && (
+        <div className="bg-zinc-800 border-2 border-orange-600 p-6">
+          <h2 className="text-2xl font-black text-orange-400 mb-4 flex items-center gap-2">
+            <Icon name="alert" size={24} />
+            PENDING MAINTENANCE REQUESTS ({pendingRequests.length})
+          </h2>
+          <div className="space-y-2">
+            {pendingRequests.slice(0, 5).map((request) => {
+              const machine = machines.find(m => m.id === request.machineId);
+              const urgencyColor = request.urgency === 'High' ? 'red' : request.urgency === 'Medium' ? 'yellow' : 'green';
+              return (
+                <div 
+                  key={request.id} 
+                  onClick={() => onViewRequest && onViewRequest(request)}
+                  className={`p-3 border-2 bg-zinc-900 border-${urgencyColor}-600 hover:bg-zinc-700 cursor-pointer flex justify-between items-start`}
+                >
+                  <div className="flex-1">
+                    <p className="text-white font-bold">
+                      {machine?.name || 'Unknown Machine'}
+                      <span className={`ml-2 text-xs px-2 py-1 bg-${urgencyColor}-900 border border-${urgencyColor}-600 text-${urgencyColor}-400`}>
+                        {request.urgency}
+                      </span>
+                    </p>
+                    <p className="text-sm text-zinc-400 mt-1">{request.issue.substring(0, 100)}{request.issue.length > 100 ? '...' : ''}</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Submitted by {request.submittedBy} • {formatDateSlash(request.submittedDate.split('T')[0])}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+            {pendingRequests.length > 5 && (
+              <div className="text-center text-zinc-500 text-sm pt-2">
+                +{pendingRequests.length - 5} more pending requests
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sprint 5: Out of Order Machines Widget */}
+      {outOfOrderMachines.length > 0 && (
+        <div className="bg-zinc-800 border-2 border-red-600 p-6">
+          <h2 className="text-2xl font-black text-red-400 mb-4 flex items-center gap-2">
+            <Icon name="alert" size={24} />
+            MACHINES OUT OF ORDER ({outOfOrderMachines.length})
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {outOfOrderMachines.map((machine) => (
+              <div key={machine.id} className="p-3 border-2 bg-red-900/20 border-red-800">
+                <p className="text-white font-bold">{machine.name}</p>
+                <p className="text-sm text-zinc-400">{machine.model}</p>
+                {machine.outOfOrderReason && (
+                  <p className="text-sm text-red-400 mt-1">⚠️ {machine.outOfOrderReason}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {alerts.length > 0 && (
         <div className="bg-zinc-800 border-2 border-red-600 p-6">
           <h2 className="text-2xl font-black text-red-400 mb-4 flex items-center gap-2">
@@ -2405,17 +2811,20 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
-          <div className="text-zinc-400 text-sm font-bold mb-2">THIS MONTH</div>
-          <div className="text-3xl font-black text-teal-400">${thisMonth.toFixed(0)}</div>
-          <div className="text-xs text-zinc-500 mt-2">
-            {lastMonth > 0 && (
-              <span className={thisMonth > lastMonth ? 'text-red-400' : 'text-green-400'}>
-                {thisMonth > lastMonth ? '↑' : '↓'} {Math.abs(((thisMonth - lastMonth) / lastMonth) * 100).toFixed(0)}% vs last
-              </span>
-            )}
+        {/* Sprint 5: Hide cost card from technicians */}
+        {permissions.canSeeCosts && (
+          <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
+            <div className="text-zinc-400 text-sm font-bold mb-2">THIS MONTH</div>
+            <div className="text-3xl font-black text-teal-400">${thisMonth.toFixed(0)}</div>
+            <div className="text-xs text-zinc-500 mt-2">
+              {lastMonth > 0 && (
+                <span className={thisMonth > lastMonth ? 'text-red-400' : 'text-green-400'}>
+                  {thisMonth > lastMonth ? '↑' : '↓'} {Math.abs(((thisMonth - lastMonth) / lastMonth) * 100).toFixed(0)}% vs last
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
           <div className="text-zinc-400 text-sm font-bold mb-2">ACTIVE EQUIPMENT</div>
@@ -2431,6 +2840,7 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
           <div className="text-xs text-zinc-500 mt-2">Check inventory</div>
         </div>
 
+        {/* Sprint 5: Show archived count to all users */}
         <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
           <div className="text-zinc-400 text-sm font-bold mb-2">ARCHIVED</div>
           <div className="text-3xl font-black text-zinc-400">{machines.filter(m => m.archived).length}</div>
@@ -2460,6 +2870,233 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year 
               );
             })}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// Maintenance Request Modal - Sprint 5 Step 3
+const MaintenanceRequestModal = ({ machines, onClose, onSubmit, currentUser }) => {
+  const [form, setForm] = useState({
+    machineId: machines.filter(m => !m.archived)[0]?.id || '',
+    issue: '',
+    urgency: 'Medium',
+    notes: ''
+  });
+  const [submitting, setSubmitting] = useState(false);
+  
+  const activeMachines = machines.filter(m => !m.archived);
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.issue.trim()) {
+      alert('Please describe the issue');
+      return;
+    }
+    
+    setSubmitting(true);
+    const success = await onSubmit(form);
+    if (success) {
+      setForm({ machineId: activeMachines[0]?.id || '', issue: '', urgency: 'Medium', notes: '' });
+      onClose();
+    }
+    setSubmitting(false);
+  };
+  
+  const selectedMachine = machines.find(m => m.id === form.machineId);
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-orange-400">🔧 SUBMIT MAINTENANCE REQUEST</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">MACHINE</label>
+            <select 
+              required 
+              value={form.machineId} 
+              onChange={e => setForm({...form, machineId: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500"
+            >
+              {activeMachines.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} - {m.model}
+                  {m.status !== 'In Service' && ` (${m.status})`}
+                </option>
+              ))}
+            </select>
+            {selectedMachine && (
+              <div className="mt-2 text-xs text-zinc-400">
+                <span className="font-bold">Serial:</span> {selectedMachine.serial} | 
+                <span className="font-bold ml-2">Status:</span> {selectedMachine.status}
+              </div>
+            )}
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">URGENCY</label>
+            <select 
+              value={form.urgency} 
+              onChange={e => setForm({...form, urgency: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500"
+            >
+              <option value="Low">🟢 Low - Can wait a few days</option>
+              <option value="Medium">🟡 Medium - Should be addressed soon</option>
+              <option value="High">🔴 High - Needs immediate attention</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">DESCRIBE THE ISSUE *</label>
+            <textarea 
+              required
+              value={form.issue} 
+              onChange={e => setForm({...form, issue: e.target.value})} 
+              placeholder="Example: Machine not spinning, making loud grinding noise during wash cycle..."
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-32"
+            />
+            <div className="text-xs text-zinc-500 mt-1">
+              Be as specific as possible. Include what's wrong, when it started, and any error messages.
+            </div>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-orange-400 mb-2">ADDITIONAL NOTES (Optional)</label>
+            <textarea 
+              value={form.notes} 
+              onChange={e => setForm({...form, notes: e.target.value})} 
+              placeholder="Any other details that might help..."
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-20"
+            />
+          </div>
+          
+          <div className="bg-zinc-900 border-2 border-zinc-700 p-4">
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              <strong className="text-orange-400">📋 What happens next:</strong><br />
+              1. Your request will be submitted to the maintenance team<br />
+              2. A manager will review and assign the request<br />
+              3. You'll be notified when it's resolved
+            </p>
+          </div>
+          
+          <div className="flex gap-4">
+            <button 
+              type="submit"
+              disabled={submitting || !form.issue.trim()}
+              className="flex-1 bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-6 py-3 font-black border-2 border-orange-700"
+            >
+              {submitting ? 'SUBMITTING...' : '✓ SUBMIT REQUEST'}
+            </button>
+            <button 
+              type="button"
+              onClick={onClose}
+              className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-black border-2 border-zinc-600"
+            >
+              CANCEL
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Out of Order Modal - Sprint 5 Step 4
+const OutOfOrderModal = ({ machine, onClose, onSave }) => {
+  const [form, setForm] = useState({
+    reason: 'Broken',
+    notes: ''
+  });
+  const [submitting, setSubmitting] = useState(false);
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    const success = await onSave(machine.id, form.reason, form.notes);
+    if (success) {
+      onClose();
+    }
+    setSubmitting(false);
+  };
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-4 border-red-600 max-w-xl w-full p-6">
+        <div className="flex justify-between mb-6">
+          <h3 className="text-2xl font-black text-red-400">⚠️ MARK OUT OF ORDER</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">
+            <Icon name="x" size={24} />
+          </button>
+        </div>
+        
+        <div className="mb-6 bg-zinc-900 border-2 border-zinc-700 p-4">
+          <p className="text-white font-bold">{machine.name}</p>
+          <p className="text-sm text-zinc-400">{machine.model} - Serial: {machine.serial}</p>
+          <p className="text-sm text-zinc-500 mt-2">
+            Current Status: <span className="text-teal-400">{machine.status}</span>
+          </p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-black text-red-400 mb-2">REASON</label>
+            <select 
+              value={form.reason} 
+              onChange={e => setForm({...form, reason: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-red-500"
+            >
+              <option value="Broken">🔧 Broken / Needs Repair</option>
+              <option value="No Supplies">📦 No Supplies (detergent, coins, etc.)</option>
+              <option value="Under Maintenance">🛠️ Under Maintenance</option>
+              <option value="Safety Issue">⚠️ Safety Issue</option>
+              <option value="Power Outage">⚡ Power/Electrical Issue</option>
+              <option value="Water Issue">💧 Water/Plumbing Issue</option>
+              <option value="Other">❓ Other</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-black text-red-400 mb-2">NOTES (Optional)</label>
+            <textarea 
+              value={form.notes} 
+              onChange={e => setForm({...form, notes: e.target.value})} 
+              placeholder="Additional details about why this machine is out of order..."
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-red-500 h-24"
+            />
+          </div>
+          
+          <div className="bg-red-900/20 border-2 border-red-800 p-4">
+            <p className="text-sm text-red-300 leading-relaxed">
+              <strong>⚠️ This will:</strong><br />
+              • Mark the machine as "Out of Order"<br />
+              • Prevent it from being selected for new repairs<br />
+              • Alert management to take action
+            </p>
+          </div>
+          
+          <div className="flex gap-4">
+            <button 
+              type="submit"
+              disabled={submitting}
+              className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-6 py-3 font-black border-2 border-red-700"
+            >
+              {submitting ? 'MARKING...' : '⚠️ MARK OUT OF ORDER'}
+            </button>
+            <button 
+              type="button"
+              onClick={onClose}
+              className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-black border-2 border-zinc-600"
+            >
+              CANCEL
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -2565,7 +3202,7 @@ const MachineNotesModal = ({ machine, notes, onClose, onAddNote, onDeleteNote })
 };
 
 // Equipment Tab with ARCHIVE feature and NESTED GROUPING
-const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote }) => {
+const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote, permissions, onMarkOutOfOrder }) => {
   const [search, setSearch] = useState('');
   const [expandedTypes, setExpandedTypes] = useState({});
   const [expandedModels, setExpandedModels] = useState({});
@@ -2666,42 +3303,64 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                               const isArchived = m.archived;
                               
                               return (
-                                <div key={m.id} className={`bg-zinc-900 border-2 p-4 hover:border-teal-500 transition ${isArchived ? 'border-zinc-600 opacity-60' : 'border-zinc-700'}`}>
+                                <div key={m.id} className={`bg-zinc-900 border-2 p-4 hover:border-teal-500 transition relative ${isArchived ? 'border-zinc-600 opacity-60' : 'border-zinc-700'}`}>
                                   {isArchived && (
                                     <div className="bg-zinc-700 border border-zinc-600 px-2 py-1 text-xs font-black text-zinc-400 mb-2 inline-block">
                                       ARCHIVED
+                                    </div>
+                                  )}
+                                  {/* Sprint 5: Out of Order Badge */}
+                                  {m.status !== 'In Service' && !isArchived && (
+                                    <div className="absolute top-2 right-2 bg-red-900 border-2 border-red-600 px-2 py-1 text-xs font-black text-red-400">
+                                      {m.status.toUpperCase()}
                                     </div>
                                   )}
                                   <div className="flex justify-between mb-3">
                                     <div>
                                       <h3 className="text-lg font-black text-white">{m.name}</h3>
                                       <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
+                                      {/* Sprint 5: Show out of order reason */}
+                                      {m.status !== 'In Service' && m.outOfOrderReason && (
+                                        <p className="text-xs text-red-400 mt-1">⚠️ {m.outOfOrderReason}</p>
+                                      )}
                                     </div>
                                     <div className="flex gap-2">
-                                      <button onClick={() => setNotesModal(m)} className="text-yellow-400 hover:text-yellow-300" title="View/Add Notes">
+                                      {/* Sprint 5: Mark Out of Order button (techs + managers) */}
+                                      {permissions.canMarkOutOfOrder && !isArchived && m.status === 'In Service' && (
+                                        <button onClick={(e) => { e.stopPropagation(); onMarkOutOfOrder(m); }} className="text-red-400 hover:text-red-300" title="Mark Out of Order">
+                                          <Icon name="alert" size={16} />
+                                        </button>
+                                      )}
+                                      <button onClick={(e) => { e.stopPropagation(); setNotesModal(m); }} className="text-yellow-400 hover:text-yellow-300" title="View/Add Notes">
                                         <Icon name="file-text" size={16} />
                                       </button>
-                                      <button onClick={() => onEdit(m)} className="text-teal-400 hover:text-teal-300">
-                                        <Icon name="edit" size={16} />
-                                      </button>
-                                      {!isArchived && (
-                                        <button onClick={() => onArchive(m.id)} className="text-yellow-400 hover:text-yellow-300" title="Archive">
+                                      {/* Sprint 5: Hide edit/archive/delete from viewers and technicians */}
+                                      {permissions.canEdit && (
+                                        <button onClick={(e) => { e.stopPropagation(); onEdit(m); }} className="text-teal-400 hover:text-teal-300">
+                                          <Icon name="edit" size={16} />
+                                        </button>
+                                      )}
+                                      {!isArchived && permissions.canEdit && (
+                                        <button onClick={(e) => { e.stopPropagation(); onArchive(m.id); }} className="text-yellow-400 hover:text-yellow-300" title="Archive">
                                           <Icon name="archive" size={16} />
                                         </button>
                                       )}
-                                      {isArchived && (
-                                        <button onClick={() => onUnarchive(m.id)} className="text-green-400 hover:text-green-300" title="Unarchive">
+                                      {isArchived && permissions.canEdit && (
+                                        <button onClick={(e) => { e.stopPropagation(); onUnarchive(m.id); }} className="text-green-400 hover:text-green-300" title="Unarchive">
                                           <Icon name="wrench" size={16} />
                                         </button>
                                       )}
-                                      <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-300">
-                                        <Icon name="trash" size={16} />
-                                      </button>
+                                      {permissions.canDelete && (
+                                        <button onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} className="text-red-400 hover:text-red-300">
+                                          <Icon name="trash" size={16} />
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                   <div className="space-y-1 text-sm mb-3">
                                     {age && <p className="text-zinc-400"><span className="font-bold">AGE:</span> {age.toFixed(1)} years</p>}
-                                    {roi && !isArchived && (
+                                    {/* Sprint 5: Hide ROI from technicians */}
+                                    {roi && !isArchived && permissions.canSeeCosts && (
                                       <div>
                                         <p className={`font-bold ${roi.recommendation === 'REPLACE' ? 'text-red-400' : 'text-green-400'}`}>
                                           {roi.recommendation} (${roi.annualCost.toFixed(0)}/yr)
@@ -2717,10 +3376,13 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                                       <div className="text-xs text-zinc-500 font-bold">REPAIRS</div>
                                       <div className="text-xl font-black text-teal-400">{getCount(m.id)}</div>
                                     </div>
-                                    <div className="text-right">
-                                      <div className="text-xs text-zinc-500 font-bold">COST</div>
-                                      <div className="text-xl font-black text-teal-400">${getCost(m.id).toFixed(2)}</div>
-                                    </div>
+                                    {/* Sprint 5: Hide cost from technicians */}
+                                    {permissions.canSeeCosts && (
+                                      <div className="text-right">
+                                        <div className="text-xs text-zinc-500 font-bold">COST</div>
+                                        <div className="text-xl font-black text-teal-400">${getCost(m.id).toFixed(2)}</div>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );
@@ -3028,7 +3690,7 @@ const CalendarTab = ({ equipmentLogs, buildingLogs, scheduledTasks, machines, ye
 };
 
 // Repairs Tab (Updated for Sprint 3 - clickable with lock icons)
-const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
+const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView, permissions }) => {
   const getPartsCost = (logId) => {
     if (!partsUsage) return 0;
     return partsUsage
@@ -3042,9 +3704,11 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
         <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
           <Icon name="calendar" size={24} /> REPAIR LOGS
         </h2>
-        <button onClick={onAdd} disabled={machines.filter(m => !m.archived).length === 0} className="bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
-          <Icon name="plus" /> ADD REPAIR
-        </button>
+        {permissions.canEdit && (
+          <button onClick={onAdd} disabled={machines.filter(m => !m.archived).length === 0} className="bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+            <Icon name="plus" /> ADD REPAIR
+          </button>
+        )}
       </div>
       <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
         <table className="w-full">
@@ -3055,8 +3719,8 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
               <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">ISSUE</th>
               <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">TECH</th>
               <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">HOURS</th>
-              <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">PARTS $</th>
-              <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">TOTAL $</th>
+              {permissions.canSeeCosts && <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">PARTS $</th>}
+              {permissions.canSeeCosts && <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">TOTAL $</th>}
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STATUS</th>
             </tr>
           </thead>
@@ -3075,10 +3739,9 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
                   <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
                   <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
                   <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
-                  <td className="px-4 py-3 text-right text-yellow-400 font-bold">${l.warranty ? '0.00' : partsCost.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right text-teal-400 font-bold">${l.warranty ? '0.00' : parseFloat(l.cost || 0).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-center">
-                    {l.locked ? (
+                  {permissions.canSeeCosts && <td className="px-4 py-3 text-right text-yellow-400 font-bold">${l.warranty ? '0.00' : partsCost.toFixed(2)}</td>}
+                  {permissions.canSeeCosts && <td className="px-4 py-3 text-right text-teal-400 font-bold">${l.warranty ? '0.00' : parseFloat(l.cost || 0).toFixed(2)}</td>}
+                  <td className="px-4 py-3 text-center">{l.locked ? (
                       <Icon name="lock" size={16} className="inline text-red-400" title="Locked" />
                     ) : (
                       <Icon name="unlock" size={16} className="inline text-green-400" title="Unlocked" />
@@ -3098,15 +3761,17 @@ const RepairsTab = ({ logs, machines, parts, partsUsage, onAdd, onView }) => {
 };
 
 // Building Tab (Updated for Sprint 3 - clickable with lock icons)
-const BuildingTab = ({ logs, onAdd, onView }) => (
+const BuildingTab = ({ logs, onAdd, onView, permissions }) => (
   <div>
     <div className="flex flex-col sm:flex-row justify-between mb-4 gap-4">
       <h2 className="text-2xl font-black text-teal-400 flex items-center gap-2">
         <Icon name="home" size={24} /> BUILDING MAINTENANCE
       </h2>
-      <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
-        <Icon name="plus" /> ADD ENTRY
-      </button>
+      {permissions.canEdit && (
+        <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+          <Icon name="plus" /> ADD ENTRY
+        </button>
+      )}
     </div>
     <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
       <table className="w-full">
@@ -3117,7 +3782,7 @@ const BuildingTab = ({ logs, onAdd, onView }) => (
             <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">ISSUE</th>
             <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">TECH</th>
             <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">HOURS</th>
-            <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>
+            {permissions.canSeeCosts && <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>}
             <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STATUS</th>
           </tr>
         </thead>
@@ -3129,9 +3794,8 @@ const BuildingTab = ({ logs, onAdd, onView }) => (
               <td className="px-4 py-3 text-zinc-300">{l.issue}</td>
               <td className="px-4 py-3 text-zinc-300">{l.tech}</td>
               <td className="px-4 py-3 text-right text-zinc-300">{l.hours}</td>
-              <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>
-              <td className="px-4 py-3 text-center">
-                {l.locked ? (
+              {permissions.canSeeCosts && <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(l.cost || 0).toFixed(2)}</td>}
+              <td className="px-4 py-3 text-center">{l.locked ? (
                   <Icon name="lock" size={16} className="inline text-red-400" title="Locked" />
                 ) : (
                   <Icon name="unlock" size={16} className="inline text-green-400" title="Unlocked" />
@@ -3232,7 +3896,7 @@ const VendorsTab = ({ vendors, equipmentLogs, buildingLogs, onAdd, onEdit, onDel
 };
 
 // Inventory Tab - NEW IN SPRINT 2
-const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onImport }) => {
+const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onImport, permissions }) => {
   const [search, setSearch] = useState('');
   
   const filtered = parts.filter(p => 
@@ -3265,12 +3929,16 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
             </div>
             <input type="text" placeholder="SEARCH..." value={search} onChange={e => setSearch(e.target.value)} className="bg-zinc-800 border-2 border-zinc-700 text-white pl-10 pr-4 py-2 font-bold focus:border-teal-500 outline-none" />
           </div>
-          <button onClick={onImport} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-yellow-700 flex items-center justify-center gap-2 text-sm sm:text-base">
-            <Icon name="file" /> IMPORT RECEIPT
-          </button>
-          <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
-            <Icon name="plus" /> ADD PART
-          </button>
+          {permissions.canEdit && (
+            <>
+              <button onClick={onImport} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-yellow-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+                <Icon name="file" /> IMPORT RECEIPT
+              </button>
+              <button onClick={onAdd} className="bg-teal-600 hover:bg-teal-500 text-white px-4 sm:px-6 py-2 font-black border-2 border-teal-700 flex items-center justify-center gap-2 text-sm sm:text-base">
+                <Icon name="plus" /> ADD PART
+              </button>
+            </>
+          )}
         </div>
       </div>
       <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
@@ -3282,10 +3950,10 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
               <th className="px-4 py-3 text-left text-teal-400 font-black text-sm">BIN</th>
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STOCK</th>
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">MIN</th>
-              <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>
+              {permissions.canSeeCosts && <th className="px-4 py-3 text-right text-teal-400 font-black text-sm">COST</th>}
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">USED</th>
               <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">STATUS</th>
-              <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">ACTIONS</th>
+              {permissions.canEdit && <th className="px-4 py-3 text-center text-teal-400 font-black text-sm">ACTIONS</th>}
             </tr>
           </thead>
           <tbody>
@@ -3308,7 +3976,7 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
                   </td>
                   <td className="px-4 py-3 text-center text-white font-bold">{p.stock}</td>
                   <td className="px-4 py-3 text-center text-zinc-400">{p.minStock}</td>
-                  <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(p.cost || 0).toFixed(2)}</td>
+                  {permissions.canSeeCosts && <td className="px-4 py-3 text-right text-teal-400 font-bold">${parseFloat(p.cost || 0).toFixed(2)}</td>}
                   <td className="px-4 py-3 text-center text-zinc-400">{getUsageCount(p.id)}</td>
                   <td className="px-4 py-3 text-center">
                     {p.snoozed ? (
@@ -3321,25 +3989,29 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-center">
-                    <div className="flex justify-center gap-2">
-                      {p.snoozed && (
-                        <button 
-                          onClick={() => window.snoozePart && window.snoozePart(p.id)} 
-                          className="text-yellow-400 hover:text-yellow-300" 
-                          title="Un-ignore alerts for this part"
-                        >
-                          <Icon name="bell" size={16} />
+                  {permissions.canEdit && (
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex justify-center gap-2">
+                        {p.snoozed && (
+                          <button 
+                            onClick={() => window.snoozePart && window.snoozePart(p.id)} 
+                            className="text-yellow-400 hover:text-yellow-300" 
+                            title="Un-ignore alerts for this part"
+                          >
+                            <Icon name="bell" size={16} />
+                          </button>
+                        )}
+                        <button onClick={() => onEdit(p)} className="text-teal-400 hover:text-teal-300" title="Edit">
+                          <Icon name="edit" size={16} />
                         </button>
-                      )}
-                      <button onClick={() => onEdit(p)} className="text-teal-400 hover:text-teal-300" title="Edit">
-                        <Icon name="edit" size={16} />
-                      </button>
-                      <button onClick={() => onDelete(p.id)} className="text-red-400 hover:text-red-300" title="Delete">
-                        <Icon name="trash" size={16} />
-                      </button>
-                    </div>
-                  </td>
+                        {permissions.canDelete && (
+                          <button onClick={() => onDelete(p.id)} className="text-red-400 hover:text-red-300" title="Delete">
+                            <Icon name="trash" size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -3349,6 +4021,172 @@ const InventoryTab = ({ parts, partsUsage, vendors, onAdd, onEdit, onDelete, onI
           <div className="text-center py-8 text-zinc-500 font-bold">NO PARTS IN INVENTORY</div>
         )}
       </div>
+    </div>
+  );
+};
+
+// Request Management Tab - Sprint 5 Step 7
+const RequestManagementTab = ({ requests, machines, onResolve, onConvert, permissions }) => {
+  const [filter, setFilter] = useState('Pending');
+  
+  const filtered = requests.filter(r => filter === 'All' || r.status === filter);
+  const sortedRequests = filtered.sort((a, b) => {
+    // Sort by urgency first (High > Medium > Low), then by date (newest first)
+    const urgencyOrder = { 'High': 3, 'Medium': 2, 'Low': 1 };
+    const urgencyDiff = (urgencyOrder[b.urgency] || 0) - (urgencyOrder[a.urgency] || 0);
+    if (urgencyDiff !== 0) return urgencyDiff;
+    return new Date(b.submittedDate) - new Date(a.submittedDate);
+  });
+  
+  return (
+    <div>
+      <div className="flex justify-between mb-4 flex-wrap gap-4">
+        <h2 className="text-2xl font-black text-orange-400 flex items-center gap-2">
+          <Icon name="alert" size={24} /> MAINTENANCE REQUESTS
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          {['All', 'Pending', 'In Progress', 'Resolved'].map(f => (
+            <button 
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-2 font-bold border-2 ${filter === f ? 'bg-orange-600 text-white border-orange-700' : 'bg-zinc-800 text-orange-400 border-zinc-700 hover:bg-zinc-700'}`}
+            >
+              {f} ({requests.filter(r => f === 'All' || r.status === f).length})
+            </button>
+          ))}
+        </div>
+      </div>
+      
+      {sortedRequests.length === 0 ? (
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-12 text-center">
+          <Icon name="check" size={48} className="inline-block text-green-400 mb-4" />
+          <p className="text-zinc-400 font-bold text-lg">NO {filter.toUpperCase()} REQUESTS</p>
+          <p className="text-zinc-500 text-sm mt-2">
+            {filter === 'Pending' ? 'All caught up! No pending maintenance requests.' : `No requests with status "${filter}"`}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-zinc-800 border-2 border-zinc-700 overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-zinc-900 border-b-2 border-orange-600">
+              <tr>
+                <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">DATE</th>
+                <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">MACHINE</th>
+                <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">ISSUE</th>
+                <th className="px-4 py-3 text-left text-orange-400 font-black text-sm">SUBMITTED BY</th>
+                <th className="px-4 py-3 text-center text-orange-400 font-black text-sm">URGENCY</th>
+                <th className="px-4 py-3 text-center text-orange-400 font-black text-sm">STATUS</th>
+                {permissions.canEdit && <th className="px-4 py-3 text-center text-orange-400 font-black text-sm">ACTIONS</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRequests.map(r => {
+                const machine = machines.find(m => m.id === r.machineId);
+                const urgencyColors = {
+                  'High': { bg: 'bg-red-900', text: 'text-red-400', border: 'border-red-600' },
+                  'Medium': { bg: 'bg-yellow-900', text: 'text-yellow-400', border: 'border-yellow-600' },
+                  'Low': { bg: 'bg-green-900', text: 'text-green-400', border: 'border-green-600' }
+                };
+                const statusColors = {
+                  'Resolved': { bg: 'bg-green-900', text: 'text-green-400' },
+                  'In Progress': { bg: 'bg-blue-900', text: 'text-blue-400' },
+                  'Pending': { bg: 'bg-orange-900', text: 'text-orange-400' }
+                };
+                const urgency = urgencyColors[r.urgency] || urgencyColors['Medium'];
+                const status = statusColors[r.status] || statusColors['Pending'];
+                
+                return (
+                  <tr key={r.id} className="border-b border-zinc-700 hover:bg-zinc-700">
+                    <td className="px-4 py-3 text-white font-bold">{formatDateSlash(r.submittedDate.split('T')[0])}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-white font-bold">{machine?.name || 'Unknown'}</div>
+                      <div className="text-xs text-zinc-500">{machine?.model || ''}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-zinc-300">{r.issue.substring(0, 80)}{r.issue.length > 80 ? '...' : ''}</div>
+                      {r.notes && <div className="text-xs text-zinc-500 mt-1">Notes: {r.notes.substring(0, 50)}{r.notes.length > 50 ? '...' : ''}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-300">{r.submittedBy}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-1 text-xs font-bold ${urgency.bg} ${urgency.text} border ${urgency.border}`}>
+                        {r.urgency}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-1 text-xs font-bold ${status.bg} ${status.text}`}>
+                        {r.status}
+                      </span>
+                      {r.resolvedDate && (
+                        <div className="text-xs text-zinc-500 mt-1">
+                          {formatDateSlash(r.resolvedDate.split('T')[0])}
+                        </div>
+                      )}
+                    </td>
+                    {permissions.canEdit && (
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex gap-2 justify-center flex-wrap">
+                          {r.status === 'Pending' && (
+                            <>
+                              <button 
+                                onClick={() => onConvert(r)} 
+                                className="px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold whitespace-nowrap"
+                                title="Create repair from this request"
+                              >
+                                CREATE REPAIR
+                              </button>
+                              <button 
+                                onClick={() => onResolve(r.id)} 
+                                className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-bold"
+                                title="Mark as resolved"
+                              >
+                                RESOLVE
+                              </button>
+                            </>
+                          )}
+                          {r.status === 'In Progress' && (
+                            <button 
+                              onClick={() => onResolve(r.id)} 
+                              className="px-2 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-bold"
+                            >
+                              RESOLVE
+                            </button>
+                          )}
+                          {r.status === 'Resolved' && (
+                            <span className="text-xs text-zinc-500 italic">Completed</span>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      
+      {sortedRequests.length > 0 && (
+        <div className="mt-4 bg-zinc-900 border-2 border-zinc-700 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+            <div>
+              <div className="text-zinc-500 text-sm font-bold">TOTAL REQUESTS</div>
+              <div className="text-2xl font-black text-white">{requests.length}</div>
+            </div>
+            <div>
+              <div className="text-zinc-500 text-sm font-bold">PENDING</div>
+              <div className="text-2xl font-black text-orange-400">{requests.filter(r => r.status === 'Pending').length}</div>
+            </div>
+            <div>
+              <div className="text-zinc-500 text-sm font-bold">IN PROGRESS</div>
+              <div className="text-2xl font-black text-blue-400">{requests.filter(r => r.status === 'In Progress').length}</div>
+            </div>
+            <div>
+              <div className="text-zinc-500 text-sm font-bold">RESOLVED</div>
+              <div className="text-2xl font-black text-green-400">{requests.filter(r => r.status === 'Resolved').length}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -3689,15 +4527,15 @@ const MachineModal = ({ machine, onClose, onSave }) => {
 };
 
 // Repair Modal (from Sprint 1 - with active machines filter)
-const RepairModal = ({ machines, parts, onClose, onSave }) => {
+const RepairModal = ({ machines, parts, onClose, onSave, prefill }) => {
   const [form, setForm] = useState({
-    machineId: machines.filter(m => !m.archived)[0]?.id || '',
+    machineId: prefill?.machineId || machines.filter(m => !m.archived)[0]?.id || '',
     date: getTodayLocal(),
-    issue: '',
+    issue: prefill?.issue || '',
     tech: '',
     laborCost: '',
     hours: '0',
-    notes: '',
+    notes: prefill?.notes || '',
     warranty: false,
   });
   const [selectedParts, setSelectedParts] = useState([]);
