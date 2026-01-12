@@ -3305,9 +3305,7 @@ const App = () => {
           />
         )}
         {activeTab === 'settings' && (
-          <RequestSettingsSection currentUser={currentUser} userRole={userRole} />
-		  <TeamManagementSection currentUser={currentUser} userRole={userRole} />
-		  <SettingsTab
+            <SettingsTab
             backups={backups}
             lastBackupTime={lastBackupTime}
             backupStatus={backupStatus}
