@@ -62,6 +62,10 @@ const ROLES = {
     canExport: true,
     canSubmitRequests: true,
     canMarkOutOfOrder: true,
+    canManageTeam: true,
+    canAccessSettings: true,
+    canAccessAllTabs: true,
+    canViewRequests: true,
   },
   manager: {
     name: 'Manager',
@@ -73,6 +77,10 @@ const ROLES = {
     canExport: true,
     canSubmitRequests: true,
     canMarkOutOfOrder: true,
+    canManageTeam: false,
+    canAccessSettings: true,
+    canAccessAllTabs: true,
+    canViewRequests: true,
   },
   technician: {
     name: 'Technician',
@@ -84,6 +92,26 @@ const ROLES = {
     canExport: false,
     canSubmitRequests: true,
     canMarkOutOfOrder: true,
+    canManageTeam: false,
+    canAccessSettings: false,
+    canAccessAllTabs: true,
+    canViewRequests: true,
+  },
+  attendant: {
+    name: 'Attendant',
+    canView: true,
+    canEdit: false,
+    canDelete: false,
+    canSeeCosts: false,
+    canManageBackups: false,
+    canExport: false,
+    canSubmitRequests: true,
+    canMarkOutOfOrder: false,
+    canManageTeam: false,
+    canAccessSettings: false,
+    canAccessAllTabs: false,
+    canViewRequests: true,
+    dashboardOnly: true,
   },
   viewer: {
     name: 'Viewer',
@@ -95,8 +123,42 @@ const ROLES = {
     canExport: true,
     canSubmitRequests: false,
     canMarkOutOfOrder: false,
+    canManageTeam: false,
+    canAccessSettings: false,
+    canAccessAllTabs: true,
+    canViewRequests: true,
   },
 };
+
+// Team management configuration
+const TEAM_CONFIG_FILE = 'MaintenanceApp_TeamConfig.json';
+
+// Removal security configuration
+const REMOVAL_CONFIG = {
+  requireEmailVerification: true,
+  waitingPeriodHours: 24,
+  minimumOwners: 1,
+};
+
+// Maintenance request form settings
+const DEFAULT_REQUEST_SETTINGS = {
+  machineTypes: ['Washer', 'Dryer', 'Other'],
+  problemTypes: [
+    'Won\'t Start',
+    'Not Heating',
+    'Leaking Water',
+    'Making Loud Noise',
+    'Door Won\'t Close',
+    'Not Spinning',
+    'Error Code Displayed',
+    'Out of Balance',
+    'Not Draining',
+    'Other'
+  ],
+  dryerLocations: ['Top', 'Bottom', 'Both'],
+  notificationEmail: 'jonathan@varneyslaundercenter.com'
+};
+
 // ========================================================
 
 // Icons
@@ -546,6 +608,452 @@ const fuzzyMatch = (search, target) => {
   return (matches / Math.max(searchTokens.length, targetTokens.length)) * 60;
 };
 
+// ============================================================================
+// TEAM MANAGEMENT & ENHANCED REQUEST SYSTEM FUNCTIONS
+// ============================================================================
+
+// === SHARED CONFIG MANAGEMENT ===
+
+const createInitialTeamConfig = (ownerEmail) => {
+  return {
+    version: '1.0',
+    foundingOwner: ownerEmail,
+    foundingDate: new Date().toISOString(),
+    sharedSpreadsheetId: null,
+    teamMembers: [
+      {
+        email: ownerEmail,
+        role: 'owner',
+        isFounder: true,
+        addedDate: new Date().toISOString(),
+        addedBy: ownerEmail
+      }
+    ],
+    requestSettings: {
+      machineTypes: DEFAULT_REQUEST_SETTINGS.machineTypes,
+      problemTypes: DEFAULT_REQUEST_SETTINGS.problemTypes,
+      dryerLocations: DEFAULT_REQUEST_SETTINGS.dryerLocations,
+      notificationEmail: DEFAULT_REQUEST_SETTINGS.notificationEmail
+    },
+    pendingRemovals: [],
+    removalLog: [],
+    lastUpdated: new Date().toISOString(),
+    updatedBy: ownerEmail
+  };
+};
+
+const saveSharedConfig = async (config) => {
+  try {
+    config.lastUpdated = new Date().toISOString();
+    const configData = JSON.stringify(config, null, 2);
+    
+    const search = await window.gapi.client.drive.files.list({
+      q: `name='${TEAM_CONFIG_FILE}' and mimeType='application/json'`,
+      spaces: 'drive',
+      fields: 'files(id)'
+    });
+    
+    if (search.result.files?.length > 0) {
+      const fileId = search.result.files[0].id;
+      await window.gapi.client.request({
+        path: `/upload/drive/v3/files/${fileId}`,
+        method: 'PATCH',
+        params: { uploadType: 'media' },
+        body: configData
+      });
+      console.log('✅ Team config updated');
+    } else {
+      const metadata = {
+        name: TEAM_CONFIG_FILE,
+        mimeType: 'application/json'
+      };
+      
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', new Blob([configData], { type: 'application/json' }));
+      
+      const token = window.gapi.client.getToken().access_token;
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: form
+      });
+      console.log('✅ Team config created');
+    }
+    
+    return true;
+  } catch (err) {
+    console.error('❌ Error saving team config:', err);
+    return false;
+  }
+};
+
+const loadSharedConfig = async () => {
+  try {
+    const search = await window.gapi.client.drive.files.list({
+      q: `name='${TEAM_CONFIG_FILE}' and (mimeType='application/json' or mimeType='text/plain')`,
+      spaces: 'drive',
+      fields: 'files(id)',
+      orderBy: 'modifiedTime desc'
+    });
+    
+    if (search.result.files?.length > 0) {
+      const fileId = search.result.files[0].id;
+      const response = await window.gapi.client.drive.files.get({
+        fileId,
+        alt: 'media'
+      });
+      
+      const config = JSON.parse(response.body);
+      console.log('✅ Team config loaded');
+      return config;
+    }
+    
+    console.log('ℹ️ No team config found');
+    return null;
+  } catch (err) {
+    console.error('❌ Error loading team config:', err);
+    return null;
+  }
+};
+
+// === EMAIL VERIFICATION SYSTEM ===
+
+const sendVerificationCode = async (email, purpose) => {
+  const code = Math.floor(100000 + Math.random() * 900000);
+  const expires = Date.now() + (10 * 60 * 1000);
+  
+  const verification = {
+    email,
+    code,
+    expires,
+    purpose,
+    created: Date.now()
+  };
+  
+  localStorage.setItem(`verification_${email}`, JSON.stringify(verification));
+  
+  console.log('📧 VERIFICATION CODE:', code);
+  console.log('📧 Send this to:', email);
+  
+  alert(
+    `📧 VERIFICATION CODE (Development Mode)\n\n` +
+    `In production, this would be emailed to:\n${email}\n\n` +
+    `Your code is: ${code}\n\n` +
+    `Code expires in 10 minutes.`
+  );
+  
+  return true;
+};
+
+const verifyCode = async (email, enteredCode) => {
+  const stored = localStorage.getItem(`verification_${email}`);
+  
+  if (!stored) {
+    return { valid: false, message: 'No verification found. Please request a new code.' };
+  }
+  
+  const verification = JSON.parse(stored);
+  
+  if (Date.now() > verification.expires) {
+    localStorage.removeItem(`verification_${email}`);
+    return { valid: false, message: 'Code expired. Please request a new code.' };
+  }
+  
+  if (parseInt(enteredCode) !== verification.code) {
+    return { valid: false, message: 'Incorrect code. Please try again.' };
+  }
+  
+  localStorage.removeItem(`verification_${email}`);
+  return { valid: true, message: 'Code verified successfully' };
+};
+
+// === WAITING PERIOD SYSTEM ===
+
+const startRemovalWaitingPeriod = async (config, email, initiatedBy) => {
+  const waitingPeriod = {
+    targetEmail: email,
+    initiatedBy: initiatedBy,
+    initiatedAt: Date.now(),
+    expiresAt: Date.now() + (REMOVAL_CONFIG.waitingPeriodHours * 60 * 60 * 1000),
+    status: 'pending',
+    canCancelUntil: Date.now() + (REMOVAL_CONFIG.waitingPeriodHours * 60 * 60 * 1000)
+  };
+  
+  config.pendingRemovals = config.pendingRemovals || [];
+  config.pendingRemovals.push(waitingPeriod);
+  
+  await saveSharedConfig(config);
+  
+  return waitingPeriod;
+};
+
+const cancelRemovalWaitingPeriod = async (config, email) => {
+  config.pendingRemovals = config.pendingRemovals.filter(p => p.targetEmail !== email);
+  await saveSharedConfig(config);
+};
+
+const checkWaitingPeriodExpired = (pendingRemoval) => {
+  return Date.now() >= pendingRemoval.expiresAt;
+};
+
+const getTimeRemaining = (pendingRemoval) => {
+  const remaining = pendingRemoval.expiresAt - Date.now();
+  if (remaining <= 0) return 'Expired';
+  
+  const hours = Math.floor(remaining / (1000 * 60 * 60));
+  const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+  
+  return `${hours}h ${minutes}m`;
+};
+
+// === OWNER REMOVAL FUNCTIONS ===
+
+const canRemoveOwner = (config, email) => {
+  const ownerCount = config.teamMembers.filter(m => m.role === 'owner').length;
+  
+  if (ownerCount <= REMOVAL_CONFIG.minimumOwners) {
+    return {
+      allowed: false,
+      reason: `Cannot remove the only owner. Add another owner first.`
+    };
+  }
+  
+  return { allowed: true };
+};
+
+const removeRegularMember = async (config, email, currentUser) => {
+  const member = config.teamMembers.find(m => m.email === email);
+  
+  const confirmed = confirm(
+    `Remove ${email}?\n\n` +
+    `Role: ${member.role}\n\n` +
+    `This will:\n` +
+    `• Remove them from the app\n` +
+    `• They will lose their assigned role\n` +
+    `• They can still access spreadsheet in Google Drive\n\n` +
+    `Continue?`
+  );
+  
+  if (!confirmed) return false;
+  
+  config.teamMembers = config.teamMembers.filter(m => m.email !== email);
+  
+  config.removalLog = config.removalLog || [];
+  config.removalLog.push({
+    removedEmail: email,
+    removedRole: member.role,
+    removedBy: currentUser,
+    removedAt: new Date().toISOString(),
+    type: 'regular'
+  });
+  
+  await saveSharedConfig(config);
+  
+  alert(
+    `✅ ${email} removed\n\n` +
+    `⚠️ Remember to also:\n` +
+    `1. Unshare the spreadsheet in Google Drive\n` +
+    `2. Remove them from any other shared resources`
+  );
+  
+  return true;
+};
+
+const removeFoundingOwner = async (config, email, currentUser) => {
+  const canRemove = canRemoveOwner(config, email);
+  if (!canRemove.allowed) {
+    alert(`❌ ${canRemove.reason}`);
+    return false;
+  }
+  
+  const existing = config.pendingRemovals?.find(p => p.targetEmail === email && p.status === 'pending');
+  
+  if (existing) {
+    if (checkWaitingPeriodExpired(existing)) {
+      return await completeFoundingOwnerRemoval(config, email, currentUser);
+    } else {
+      const remaining = getTimeRemaining(existing);
+      const cancel = confirm(
+        `⏳ REMOVAL IN PROGRESS\n\n` +
+        `${email} removal is in the 24-hour waiting period.\n\n` +
+        `Time remaining: ${remaining}\n\n` +
+        `Do you want to CANCEL the removal?`
+      );
+      
+      if (cancel) {
+        await cancelRemovalWaitingPeriod(config, email);
+        alert('✅ Removal cancelled');
+      }
+      return false;
+    }
+  }
+  
+  const proceed = confirm(
+    `⚠️⚠️⚠️ REMOVING FOUNDING OWNER ⚠️⚠️⚠️\n\n` +
+    `You are about to remove: ${email}\n` +
+    `This is the FOUNDING OWNER who created this app.\n\n` +
+    `This process requires:\n` +
+    `✓ Email confirmation\n` +
+    `✓ Email verification code\n` +
+    `✓ Confirmation phrase\n` +
+    `✓ 24-hour waiting period\n\n` +
+    `Current owners: ${config.teamMembers.filter(m => m.role === 'owner').length}\n` +
+    `Will remain: ${config.teamMembers.filter(m => m.role === 'owner').length - 1}\n\n` +
+    `Proceed to verification?`
+  );
+  
+  if (!proceed) return false;
+  
+  const typedEmail = prompt(
+    `🔐 STEP 1: EMAIL CONFIRMATION\n\n` +
+    `Type the founding owner's email exactly:\n\n` +
+    `${email}`
+  );
+  
+  if (typedEmail !== email) {
+    alert('❌ Email does not match. Removal cancelled.');
+    return false;
+  }
+  
+  if (REMOVAL_CONFIG.requireEmailVerification) {
+    await sendVerificationCode(email, 'remove_founding_owner');
+    
+    const code = prompt(
+      `🔐 STEP 2: EMAIL VERIFICATION\n\n` +
+      `A 6-digit code has been sent to:\n${email}\n\n` +
+      `Enter the code (expires in 10 minutes):`
+    );
+    
+    if (!code) {
+      alert('❌ Verification cancelled.');
+      return false;
+    }
+    
+    const verification = await verifyCode(email, code);
+    if (!verification.valid) {
+      alert(`❌ ${verification.message}`);
+      return false;
+    }
+  }
+  
+  const phrase = prompt(
+    `🔐 STEP 3: CONFIRMATION PHRASE\n\n` +
+    `Type this phrase exactly (case-sensitive):\n\n` +
+    `REMOVE FOUNDER`
+  );
+  
+  if (phrase !== 'REMOVE FOUNDER') {
+    alert('❌ Incorrect phrase. Removal cancelled.');
+    return false;
+  }
+  
+  const finalConfirm = confirm(
+    `🔐 FINAL CONFIRMATION\n\n` +
+    `All verification steps completed.\n\n` +
+    `Starting 24-hour waiting period for:\n${email}\n\n` +
+    `During this time:\n` +
+    `• The user will still have access\n` +
+    `• You can cancel the removal\n` +
+    `• After 24 hours, removal will be ready to complete\n\n` +
+    `Start waiting period?`
+  );
+  
+  if (!finalConfirm) {
+    alert('❌ Removal cancelled.');
+    return false;
+  }
+  
+  const waitingPeriod = await startRemovalWaitingPeriod(config, email, currentUser);
+  
+  alert(
+    `⏳ WAITING PERIOD STARTED\n\n` +
+    `${email} removal is now in a 24-hour waiting period.\n\n` +
+    `Expires: ${new Date(waitingPeriod.expiresAt).toLocaleString()}\n\n` +
+    `You can cancel this removal anytime before expiration.\n` +
+    `After 24 hours, return here to complete the removal.`
+  );
+  
+  return false;
+};
+
+const completeFoundingOwnerRemoval = async (config, email, currentUser) => {
+  const finalConfirm = confirm(
+    `✅ WAITING PERIOD COMPLETE\n\n` +
+    `The 24-hour waiting period has expired.\n\n` +
+    `Complete removal of:\n${email}\n\n` +
+    `This action CANNOT be undone.\n\n` +
+    `Complete removal now?`
+  );
+  
+  if (!finalConfirm) return false;
+  
+  const member = config.teamMembers.find(m => m.email === email);
+  
+  config.teamMembers = config.teamMembers.filter(m => m.email !== email);
+  config.pendingRemovals = config.pendingRemovals.filter(p => p.targetEmail !== email);
+  
+  config.removalLog = config.removalLog || [];
+  config.removalLog.push({
+    removedEmail: email,
+    removedRole: member.role,
+    isFounder: true,
+    removedBy: currentUser,
+    removedAt: new Date().toISOString(),
+    waitingPeriodStarted: config.pendingRemovals.find(p => p.targetEmail === email)?.initiatedAt,
+    type: 'founding_owner'
+  });
+  
+  await saveSharedConfig(config);
+  
+  alert(
+    `✅ FOUNDING OWNER REMOVED\n\n` +
+    `${email} has been permanently removed.\n\n` +
+    `⚠️ IMPORTANT:\n` +
+    `Also unshare the spreadsheet in Google Drive!`
+  );
+  
+  return true;
+};
+
+// === EMAIL NOTIFICATION FOR MAINTENANCE REQUESTS ===
+
+const sendMaintenanceRequestEmail = async (request, machineName) => {
+  const config = await loadSharedConfig();
+  const notificationEmail = config?.requestSettings?.notificationEmail || DEFAULT_REQUEST_SETTINGS.notificationEmail;
+  
+  const emailBody = `
+NEW MAINTENANCE REQUEST
+
+Machine: ${machineName}
+Machine Type: ${request.machineType || 'Not specified'}
+${request.machineType === 'Dryer' && request.dryerLocation ? `Location: ${request.dryerLocation}` : ''}
+Problem Type: ${request.problemType || 'Not specified'}
+Issue Details: ${request.issue}
+Urgency: ${request.urgency}
+Submitted By: ${request.submittedBy}
+Date: ${new Date(request.submittedDate).toLocaleString()}
+  `.trim();
+  
+  console.log('📧 EMAIL NOTIFICATION:');
+  console.log('To:', notificationEmail);
+  console.log('Subject: New Maintenance Request');
+  console.log('Body:', emailBody);
+  
+  alert(
+    `📧 EMAIL SENT (Development Mode)\n\n` +
+    `In production, this would be emailed to:\n${notificationEmail}\n\n` +
+    `Subject: New Maintenance Request\n\n` +
+    `${emailBody}`
+  );
+  
+  return true;
+};
+
+// ============================================================================
+// END OF TEAM MANAGEMENT & ENHANCED REQUEST FUNCTIONS
+// ============================================================================
+
 // Main App
 const App = () => {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -661,38 +1169,59 @@ const App = () => {
   // Sprint 5: Detect current user and their role
   const detectUserRole = async () => {
     try {
-      // Get user info from Google's userinfo endpoint using the access token
       const token = window.gapi.client.getToken();
-      if (token && token.access_token) {
-        const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: {
-            'Authorization': `Bearer ${token.access_token}`
-          }
-        });
-        
-        if (response.ok) {
-          const userInfo = await response.json();
-          const email = userInfo.email;
-          setCurrentUser(email);
-          
-          // Look up role
-          const role = USER_ROLES[email] || 'viewer';
-          setUserRole(role);
-          
-          console.log('✅ User authenticated:', email, '| Role:', ROLES[role].name);
-          return role;
-        } else {
-          console.error('❌ Userinfo request failed:', response.status, response.statusText);
-        }
+      if (!token || !token.access_token) {
+        console.log('⚠️ No access token available');
+        setUserRole('viewer');
+        return 'viewer';
       }
+      
+      const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { 'Authorization': `Bearer ${token.access_token}` }
+      });
+      
+      if (!response.ok) {
+        console.error('❌ Failed to get user info');
+        setUserRole('viewer');
+        return 'viewer';
+      }
+      
+      const userInfo = await response.json();
+      const email = userInfo.email;
+      setCurrentUser(email);
+      
+      // Try to load role from shared config first
+      console.log('🔍 Loading role from team config...');
+      const teamConfig = await loadSharedConfig();
+      
+      let role = 'viewer'; // Default
+      
+      if (teamConfig) {
+        const member = teamConfig.teamMembers.find(m => m.email === email);
+        if (member) {
+          role = member.role;
+          console.log('✅ Role loaded from team config:', role);
+        } else {
+          console.log('⚠️ Email not found in team config, checking fallback');
+          // Fall back to hardcoded USER_ROLES
+          role = USER_ROLES[email] || 'viewer';
+          console.log('✅ Using fallback role:', role);
+        }
+      } else {
+        // Fall back to hardcoded USER_ROLES
+        role = USER_ROLES[email] || 'viewer';
+        console.log('⚠️ Team config not found, using hardcoded role:', role);
+      }
+      
+      setUserRole(role);
+      console.log('✅ User authenticated:', email, '| Role:', ROLES[role].name);
+      
+      return role;
     } catch (err) {
-      console.error('❌ Error detecting user role:', err);
+      console.error('❌ Error in detectUserRole:', err);
+      setUserRole('viewer');
+      return 'viewer';
     }
-    
-    // Fallback
-    console.warn('⚠️ Could not detect user, defaulting to viewer');
-    setUserRole('viewer');
-    return 'viewer';
   };
 
   // Sprint 5: Get permissions for current user
@@ -731,10 +1260,11 @@ const App = () => {
       const effectiveRole = userRoleForEmail || userRole;
       console.log('📂 loadFromCloud: Effective role:', effectiveRole);
       
-      // If user is technician, use hardcoded spreadsheet
-      if (effectiveRole === 'technician') {
+      // All non-owners (technicians, managers, viewers) use hardcoded shared spreadsheet
+      // Only owner uses config flow to create/manage their own spreadsheet
+      if (effectiveRole !== 'owner') {
         const SHARED_SPREADSHEET_ID = '1_fUC0hWS8ZmqXkd6_-fMUKwDoW2pB7nYlKZVkBwy7zM';
-        console.log('👷 Technician role detected - using hardcoded shared spreadsheet');
+        console.log('👥 Team member detected (role:', effectiveRole, ') - using shared spreadsheet');
         console.log('📋 Shared spreadsheet ID:', SHARED_SPREADSHEET_ID);
         
         setSpreadsheetId(SHARED_SPREADSHEET_ID);
@@ -749,7 +1279,8 @@ const App = () => {
         return;
       }
       
-      // For owners/managers/viewers, use normal config flow
+      // Only owner gets here - uses config flow
+      console.log('👑 Owner detected - using config flow');
       console.log('📂 loadFromCloud: Checking for existing config...');
       const response = await window.gapi.client.drive.files.list({
         spaces: 'appDataFolder',
@@ -2774,7 +3305,9 @@ const App = () => {
           />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab
+          <RequestSettingsSection currentUser={currentUser} userRole={userRole} />
+		  <TeamManagementSection currentUser={currentUser} userRole={userRole} />
+		  <SettingsTab
             backups={backups}
             lastBackupTime={lastBackupTime}
             backupStatus={backupStatus}
@@ -2821,6 +3354,598 @@ const App = () => {
   );
 };
 
+// ============================================================================
+// REQUEST SETTINGS COMPONENT
+// ============================================================================
+
+const RequestSettingsSection = ({ currentUser, userRole }) => {
+  const [teamConfig, setTeamConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editingMachineTypes, setEditingMachineTypes] = useState(false);
+  const [editingProblemTypes, setEditingProblemTypes] = useState(false);
+  const [newMachineType, setNewMachineType] = useState('');
+  const [newProblemType, setNewProblemType] = useState('');
+  const [notificationEmail, setNotificationEmail] = useState('');
+  
+  useEffect(() => {
+    loadConfig();
+  }, []);
+  
+  const loadConfig = async () => {
+    setLoading(true);
+    let config = await loadSharedConfig();
+    
+    if (!config) {
+      config = createInitialTeamConfig(currentUser);
+      await saveSharedConfig(config);
+    }
+    
+    if (!config.requestSettings) {
+      config.requestSettings = {
+        machineTypes: DEFAULT_REQUEST_SETTINGS.machineTypes,
+        problemTypes: DEFAULT_REQUEST_SETTINGS.problemTypes,
+        dryerLocations: DEFAULT_REQUEST_SETTINGS.dryerLocations,
+        notificationEmail: DEFAULT_REQUEST_SETTINGS.notificationEmail
+      };
+      await saveSharedConfig(config);
+    }
+    
+    setTeamConfig(config);
+    setNotificationEmail(config.requestSettings.notificationEmail);
+    setLoading(false);
+  };
+  
+  const addMachineType = async () => {
+    if (!newMachineType.trim()) return;
+    
+    if (teamConfig.requestSettings.machineTypes.includes(newMachineType.trim())) {
+      alert('This machine type already exists');
+      return;
+    }
+    
+    teamConfig.requestSettings.machineTypes.push(newMachineType.trim());
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setNewMachineType('');
+      alert('✅ Machine type added');
+    }
+  };
+  
+  const removeMachineType = async (type) => {
+    const confirmed = confirm(`Remove machine type: ${type}?`);
+    if (!confirmed) return;
+    
+    teamConfig.requestSettings.machineTypes = teamConfig.requestSettings.machineTypes.filter(t => t !== type);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Machine type removed');
+    }
+  };
+  
+  const addProblemType = async () => {
+    if (!newProblemType.trim()) return;
+    
+    if (teamConfig.requestSettings.problemTypes.includes(newProblemType.trim())) {
+      alert('This problem type already exists');
+      return;
+    }
+    
+    teamConfig.requestSettings.problemTypes.push(newProblemType.trim());
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setNewProblemType('');
+      alert('✅ Problem type added');
+    }
+  };
+  
+  const removeProblemType = async (type) => {
+    const confirmed = confirm(`Remove problem type: ${type}?`);
+    if (!confirmed) return;
+    
+    teamConfig.requestSettings.problemTypes = teamConfig.requestSettings.problemTypes.filter(t => t !== type);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Problem type removed');
+    }
+  };
+  
+  const updateNotificationEmail = async () => {
+    if (!notificationEmail.includes('@')) {
+      alert('Please enter a valid email address');
+      return;
+    }
+    
+    teamConfig.requestSettings.notificationEmail = notificationEmail;
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Notification email updated');
+    }
+  };
+  
+  if (userRole !== 'owner') {
+    return null;
+  }
+  
+  if (loading) {
+    return (
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
+        <h3 className="text-xl font-black text-teal-400 mb-4">🔧 MAINTENANCE REQUEST SETTINGS</h3>
+        <p className="text-zinc-400">Loading settings...</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
+      <h3 className="text-xl font-black text-teal-400 mb-4">🔧 MAINTENANCE REQUEST SETTINGS</h3>
+      
+      <div className="mb-6">
+        <h4 className="text-lg font-bold text-zinc-300 mb-3">Email Notifications</h4>
+        <div className="flex gap-3">
+          <input
+            type="email"
+            value={notificationEmail}
+            onChange={(e) => setNotificationEmail(e.target.value)}
+            placeholder="email@example.com"
+            className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+          />
+          <button
+            onClick={updateNotificationEmail}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+          >
+            💾 SAVE
+          </button>
+        </div>
+        <p className="text-xs text-zinc-500 mt-2">
+          You'll receive an email when maintenance requests are submitted
+        </p>
+      </div>
+      
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-lg font-bold text-zinc-300">Machine Types</h4>
+          <button
+            onClick={() => setEditingMachineTypes(!editingMachineTypes)}
+            className="text-sm text-teal-400 hover:text-teal-300"
+          >
+            {editingMachineTypes ? '✓ Done' : '✏️ Edit'}
+          </button>
+        </div>
+        
+        <div className="space-y-2">
+          {teamConfig.requestSettings.machineTypes.map(type => (
+            <div key={type} className="bg-zinc-800 border border-zinc-700 p-2 flex items-center justify-between">
+              <span className="text-zinc-200">{type}</span>
+              {editingMachineTypes && (
+                <button
+                  onClick={() => removeMachineType(type)}
+                  className="text-red-400 hover:text-red-300 text-sm"
+                >
+                  ❌ Remove
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        {editingMachineTypes && (
+          <div className="mt-3 flex gap-2">
+            <input
+              type="text"
+              value={newMachineType}
+              onChange={(e) => setNewMachineType(e.target.value)}
+              placeholder="New machine type"
+              className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+              onKeyPress={(e) => e.key === 'Enter' && addMachineType()}
+            />
+            <button
+              onClick={addMachineType}
+              className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+            >
+              ➕ ADD
+            </button>
+          </div>
+        )}
+      </div>
+      
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-lg font-bold text-zinc-300">Problem Types</h4>
+          <button
+            onClick={() => setEditingProblemTypes(!editingProblemTypes)}
+            className="text-sm text-teal-400 hover:text-teal-300"
+          >
+            {editingProblemTypes ? '✓ Done' : '✏️ Edit'}
+          </button>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-2">
+          {teamConfig.requestSettings.problemTypes.map(type => (
+            <div key={type} className="bg-zinc-800 border border-zinc-700 p-2 flex items-center justify-between">
+              <span className="text-zinc-200 text-sm">{type}</span>
+              {editingProblemTypes && (
+                <button
+                  onClick={() => removeProblemType(type)}
+                  className="text-red-400 hover:text-red-300 text-xs ml-2"
+                >
+                  ❌
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        {editingProblemTypes && (
+          <div className="mt-3 flex gap-2">
+            <input
+              type="text"
+              value={newProblemType}
+              onChange={(e) => setNewProblemType(e.target.value)}
+              placeholder="New problem type"
+              className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+              onKeyPress={(e) => e.key === 'Enter' && addProblemType()}
+            />
+            <button
+              onClick={addProblemType}
+              className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+            >
+              ➕ ADD
+            </button>
+          </div>
+        )}
+      </div>
+      
+      <div className="mt-6 p-4 bg-zinc-800 border border-zinc-700">
+        <div className="text-sm text-zinc-400">
+          <div className="font-bold text-zinc-300 mb-2">ℹ️ About These Settings:</div>
+          <div>• Machine Types: Used to filter the machine dropdown in maintenance requests</div>
+          <div>• Problem Types: Quick-select options for common issues</div>
+          <div>• Dryer Location: Automatically shown when "Dryer" is selected</div>
+          <div>• All team members will see these options when submitting requests</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// TEAM MANAGEMENT COMPONENT
+// ============================================================================
+
+const TeamManagementSection = ({ currentUser, userRole }) => {
+  const [teamConfig, setTeamConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState('technician');
+  const [spreadsheetId, setSpreadsheetIdLocal] = useState('');
+  
+  useEffect(() => {
+    loadTeamConfig();
+    const interval = setInterval(loadTeamConfig, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  const loadTeamConfig = async () => {
+    setLoading(true);
+    let config = await loadSharedConfig();
+    
+    if (!config) {
+      config = createInitialTeamConfig(currentUser);
+      await saveSharedConfig(config);
+    }
+    
+    setTeamConfig(config);
+    setSpreadsheetIdLocal(config.sharedSpreadsheetId || '');
+    setLoading(false);
+  };
+  
+  const addTeamMember = async () => {
+    if (!newEmail || !newEmail.includes('@')) {
+      alert('Please enter a valid email address');
+      return;
+    }
+    
+    if (teamConfig.teamMembers.find(m => m.email === newEmail)) {
+      alert('This email is already in the team');
+      return;
+    }
+    
+    const newMember = {
+      email: newEmail,
+      role: newRole,
+      isFounder: false,
+      addedDate: new Date().toISOString(),
+      addedBy: currentUser
+    };
+    
+    teamConfig.teamMembers.push(newMember);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setNewEmail('');
+      alert(
+        `✅ ${newEmail} added as ${newRole}\n\n` +
+        `Next steps:\n` +
+        `1. Share the spreadsheet with them in Google Drive\n` +
+        `2. Set permission to "Editor"\n` +
+        `3. They can now sign in to the app`
+      );
+    }
+  };
+  
+  const changeRole = async (email, newRoleValue) => {
+    const member = teamConfig.teamMembers.find(m => m.email === email);
+    const oldRole = member.role;
+    
+    if (oldRole === 'owner' && newRoleValue !== 'owner') {
+      const ownerCount = teamConfig.teamMembers.filter(m => m.role === 'owner').length;
+      if (ownerCount <= REMOVAL_CONFIG.minimumOwners) {
+        alert('Cannot change the only owner\'s role. Add another owner first.');
+        return;
+      }
+    }
+    
+    const confirmed = confirm(
+      `Change role for ${email}?\n\n` +
+      `From: ${oldRole}\n` +
+      `To: ${newRoleValue}\n\n` +
+      `Continue?`
+    );
+    
+    if (!confirmed) return;
+    
+    member.role = newRoleValue;
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert(`✅ Role updated. ${email} will see new permissions on next sign-in.`);
+    }
+  };
+  
+  const removeMember = async (email) => {
+    const member = teamConfig.teamMembers.find(m => m.email === email);
+    
+    if (!member) return;
+    
+    if (email === currentUser) {
+      alert('You cannot remove yourself. Ask another owner to remove you.');
+      return;
+    }
+    
+    let removed = false;
+    
+    if (member.isFounder && member.role === 'owner') {
+      removed = await removeFoundingOwner(teamConfig, email, currentUser);
+    } else if (member.role === 'owner') {
+      const canRemove = canRemoveOwner(teamConfig, email);
+      if (!canRemove.allowed) {
+        alert(`❌ ${canRemove.reason}`);
+        return;
+      }
+      removed = await removeRegularMember(teamConfig, email, currentUser);
+    } else {
+      removed = await removeRegularMember(teamConfig, email, currentUser);
+    }
+    
+    if (removed) {
+      await loadTeamConfig();
+    }
+  };
+  
+  const setSharedSpreadsheet = async () => {
+    if (!spreadsheetId) {
+      alert('Please enter a spreadsheet ID');
+      return;
+    }
+    
+    const confirmed = confirm(
+      `Set this as the shared spreadsheet?\n\n` +
+      `ID: ${spreadsheetId}\n\n` +
+      `All team members will use this spreadsheet.\n\n` +
+      `Continue?`
+    );
+    
+    if (!confirmed) return;
+    
+    teamConfig.sharedSpreadsheetId = spreadsheetId;
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Shared spreadsheet set! Team members will use this on next sign-in.');
+    }
+  };
+  
+  if (userRole !== 'owner') {
+    return (
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
+        <h3 className="text-xl font-black text-teal-400 mb-4">👥 TEAM INFORMATION</h3>
+        <p className="text-zinc-400">Team management is only available to owners.</p>
+      </div>
+    );
+  }
+  
+  if (loading) {
+    return (
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
+        <h3 className="text-xl font-black text-teal-400 mb-4">👥 TEAM MANAGEMENT</h3>
+        <p className="text-zinc-400">Loading team configuration...</p>
+      </div>
+    );
+  }
+  
+  const ownerCount = teamConfig.teamMembers.filter(m => m.role === 'owner').length;
+  const pendingCount = teamConfig.pendingRemovals?.filter(p => p.status === 'pending').length || 0;
+  
+  return (
+    <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
+      <h3 className="text-xl font-black text-teal-400 mb-4">👥 TEAM MANAGEMENT</h3>
+      
+      {pendingCount > 0 && (
+        <div className="bg-yellow-900/30 border-2 border-yellow-600 p-4 mb-6">
+          <div className="text-yellow-400 font-bold mb-2">
+            ⏳ {pendingCount} Pending Removal{pendingCount > 1 ? 's' : ''}
+          </div>
+          {teamConfig.pendingRemovals
+            .filter(p => p.status === 'pending')
+            .map(pending => (
+              <div key={pending.targetEmail} className="text-zinc-300 text-sm mt-2">
+                <div>📧 {pending.targetEmail}</div>
+                <div>⏰ Time remaining: {getTimeRemaining(pending)}</div>
+                <button
+                  onClick={async () => {
+                    await cancelRemovalWaitingPeriod(teamConfig, pending.targetEmail);
+                    await loadTeamConfig();
+                  }}
+                  className="bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 text-sm mt-2"
+                >
+                  Cancel Removal
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
+      
+      <div className="mb-6">
+        <h4 className="text-lg font-bold text-zinc-300 mb-3">
+          Current Team ({teamConfig.teamMembers.length} members, {ownerCount} owner{ownerCount > 1 ? 's' : ''})
+        </h4>
+        <div className="space-y-2">
+          {teamConfig.teamMembers.map(member => (
+            <div key={member.email} className="bg-zinc-800 border border-zinc-700 p-3 flex items-center justify-between">
+              <div className="flex-1">
+                <div className="text-zinc-200">
+                  {member.email}
+                  {member.isFounder && <span className="ml-2 text-xs bg-teal-600 px-2 py-1">FOUNDER</span>}
+                  {member.email === currentUser && <span className="ml-2 text-xs bg-zinc-600 px-2 py-1">YOU</span>}
+                </div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  Added: {new Date(member.addedDate).toLocaleDateString()}
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <select
+                  value={member.role}
+                  onChange={(e) => changeRole(member.email, e.target.value)}
+                  disabled={member.email === currentUser}
+                  className="bg-zinc-700 text-zinc-200 px-3 py-1 text-sm"
+                >
+                  <option value="owner">Owner</option>
+                  <option value="manager">Manager</option>
+                  <option value="technician">Technician</option>
+                  <option value="attendant">Attendant</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                
+                {member.email !== currentUser && (
+                  <button
+                    onClick={() => removeMember(member.email)}
+                    className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-sm"
+                  >
+                    ❌ Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      <div className="mb-6">
+        <h4 className="text-lg font-bold text-zinc-300 mb-3">Add Team Member</h4>
+        <div className="flex gap-3">
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="email@example.com"
+            className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+          />
+          <select
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value)}
+            className="bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+          >
+            <option value="technician">Technician</option>
+            <option value="manager">Manager</option>
+            <option value="attendant">Attendant</option>
+            <option value="viewer">Viewer</option>
+            <option value="owner">Owner</option>
+          </select>
+          <button
+            onClick={addTeamMember}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+          >
+            ➕ ADD
+          </button>
+        </div>
+        <p className="text-xs text-zinc-500 mt-2">
+          After adding, share the spreadsheet with them in Google Drive (Editor permission).
+        </p>
+      </div>
+      
+      <div>
+        <h4 className="text-lg font-bold text-zinc-300 mb-3">Shared Spreadsheet</h4>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={spreadsheetId}
+            onChange={(e) => setSpreadsheetIdLocal(e.target.value)}
+            placeholder="Spreadsheet ID (from URL)"
+            className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2 font-mono text-sm"
+          />
+          <button
+            onClick={setSharedSpreadsheet}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+          >
+            📋 SET AS SHARED
+          </button>
+        </div>
+        <p className="text-xs text-zinc-500 mt-2">
+          This is the spreadsheet all team members will access. Get the ID from the spreadsheet URL.
+        </p>
+        {teamConfig.sharedSpreadsheetId && (
+          <div className="text-xs text-teal-400 mt-2">
+            ✅ Current shared spreadsheet: {teamConfig.sharedSpreadsheetId}
+          </div>
+        )}
+      </div>
+      
+      <div className="mt-6 p-4 bg-zinc-800 border border-zinc-700">
+        <div className="text-sm text-zinc-400">
+          <div className="font-bold text-zinc-300 mb-2">🔒 Security Features Active:</div>
+          <div>✓ Minimum {REMOVAL_CONFIG.minimumOwners} owner{REMOVAL_CONFIG.minimumOwners > 1 ? 's' : ''} required</div>
+          {REMOVAL_CONFIG.requireEmailVerification && <div>✓ Email verification for founding owner removal</div>}
+          {REMOVAL_CONFIG.waitingPeriodHours > 0 && <div>✓ {REMOVAL_CONFIG.waitingPeriodHours}-hour waiting period for founding owner removal</div>}
+          <div>✓ Full audit log maintained</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Dashboard Component (from Sprint 1 - enhanced)
 const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year, maintenanceRequests = [], permissions, onSubmitRequest, onViewRequest }) => {
   // DEBUG: Log what props Dashboard is receiving
@@ -2828,6 +3953,121 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year,
   console.log('📊 Dashboard: equipmentLogs:', equipmentLogs?.length || 0);
   console.log('📊 Dashboard: buildingLogs:', buildingLogs?.length || 0);
   console.log('📊 Dashboard: parts:', parts?.length || 0);
+  
+  // ATTENDANT VIEW - Dashboard only access
+if (permissions.dashboardOnly) {
+  const openRequests = maintenanceRequests.filter(r => r.status === 'Pending');
+  const outOfOrderMachines = machines.filter(m => m.status === 'Out of Order' && !m.archived);
+  
+  return (
+    <div className="p-6">
+      <h2 className="text-3xl font-black text-teal-400 mb-6">📊 DASHBOARD - ATTENDANT VIEW</h2>
+      
+      <div className="bg-orange-900/30 border-2 border-orange-600 p-6 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xl font-black text-orange-300 mb-2">🔧 NEED MAINTENANCE?</div>
+            <div className="text-zinc-300">Submit a request or mark a machine out of order</div>
+          </div>
+          <button
+            onClick={onSubmitRequest}
+            className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-3 font-black border-2 border-orange-700"
+          >
+            + SUBMIT REQUEST
+          </button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-6 mb-6">
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
+          <div className="text-zinc-400 text-sm font-bold mb-2">OPEN REQUESTS</div>
+          <div className="text-3xl font-black text-teal-400">{openRequests.length}</div>
+          <div className="text-xs text-zinc-500 mt-2">Pending maintenance</div>
+        </div>
+        
+        <div className="bg-zinc-800 border-2 border-zinc-700 p-6">
+          <div className="text-zinc-400 text-sm font-bold mb-2">OUT OF ORDER</div>
+          <div className="text-3xl font-black text-red-400">{outOfOrderMachines.length}</div>
+          <div className="text-xs text-zinc-500 mt-2">Machines down</div>
+        </div>
+      </div>
+      
+      {outOfOrderMachines.length > 0 && (
+        <div className="bg-red-900/20 border-2 border-red-600 p-6 mb-6">
+          <h3 className="text-xl font-black text-red-400 mb-4">🚫 OUT OF ORDER MACHINES</h3>
+          <div className="space-y-2">
+            {outOfOrderMachines.map(machine => (
+              <div key={machine.id} className="bg-zinc-800 border border-red-600 p-3">
+                <div className="font-bold text-zinc-200">{machine.name}</div>
+                <div className="text-sm text-zinc-400">{machine.model}</div>
+                {machine.outOfOrderReason && (
+                  <div className="text-sm text-red-400 mt-1">Reason: {machine.outOfOrderReason}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-6">
+        <h3 className="text-xl font-black text-teal-400 mb-4">
+          📋 OPEN MAINTENANCE REQUESTS ({openRequests.length})
+        </h3>
+        
+        {openRequests.length === 0 ? (
+          <p className="text-zinc-500">No open requests</p>
+        ) : (
+          <div className="space-y-3">
+            {openRequests
+              .sort((a, b) => {
+                const urgencyOrder = { 'High': 0, 'Medium': 1, 'Low': 2 };
+                return urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
+              })
+              .map(request => {
+                const machine = machines.find(m => m.id === request.machineId);
+                const urgencyColor = {
+                  'High': 'bg-red-900/30 border-red-600',
+                  'Medium': 'bg-yellow-900/30 border-yellow-600',
+                  'Low': 'bg-zinc-800 border-zinc-600'
+                }[request.urgency];
+                
+                return (
+                  <div key={request.id} className={`border-2 p-4 ${urgencyColor}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="font-bold text-zinc-200">
+                          {machine ? machine.name : 'Unknown Machine'}
+                          {request.machineType && ` - ${request.machineType}`}
+                          {request.dryerLocation && ` (${request.dryerLocation})`}
+                        </div>
+                        <div className="text-sm text-zinc-400 mt-1">
+                          <span className="font-bold">{request.problemType}</span>
+                          {request.problemType !== request.issue && ` - ${request.issue}`}
+                        </div>
+                        <div className="text-xs text-zinc-500 mt-2">
+                          Submitted: {new Date(request.submittedDate).toLocaleDateString()}
+                          {' by ' + request.submittedBy}
+                        </div>
+                      </div>
+                      <div className={`px-3 py-1 text-sm font-bold ${
+                        request.urgency === 'High' ? 'bg-red-600 text-white' :
+                        request.urgency === 'Medium' ? 'bg-yellow-600 text-black' :
+                        'bg-zinc-600 text-white'
+                      }`}>
+                        {request.urgency.toUpperCase()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Regular dashboard for other roles continues below...
   
   const today = new Date();
   const activeMachines = machines.filter(m => !m.archived);
@@ -3030,132 +4270,212 @@ const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year,
 };
 
 // Maintenance Request Modal - Sprint 5 Step 3
-const MaintenanceRequestModal = ({ machines, onClose, onSubmit, currentUser }) => {
-  const [form, setForm] = useState({
-    machineId: machines.filter(m => !m.archived)[0]?.id || '',
-    issue: '',
-    urgency: 'Medium',
-    notes: ''
-  });
-  const [submitting, setSubmitting] = useState(false);
+const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) => {
+  const [machineType, setMachineType] = useState('');
+  const [dryerLocation, setDryerLocation] = useState('');
+  const [machineId, setMachineId] = useState('');
+  const [problemType, setProblemType] = useState('');
+  const [issue, setIssue] = useState('');
+  const [urgency, setUrgency] = useState('Medium');
+  const [requestSettings, setRequestSettings] = useState(null);
   
-  const activeMachines = machines.filter(m => !m.archived);
+  useEffect(() => {
+    loadRequestSettings();
+  }, []);
   
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.issue.trim()) {
+  const loadRequestSettings = async () => {
+    const config = await loadSharedConfig();
+    if (config?.requestSettings) {
+      setRequestSettings(config.requestSettings);
+    } else {
+      setRequestSettings(DEFAULT_REQUEST_SETTINGS);
+    }
+  };
+  
+  const filteredMachines = machineType 
+    ? machines.filter(m => {
+        if (machineType === 'Other') {
+          return !requestSettings?.machineTypes.slice(0, -1).includes(m.type);
+        }
+        return m.type === machineType;
+      })
+    : machines;
+  
+  const handleSubmit = async () => {
+    if (!machineType) {
+      alert('Please select a machine type');
+      return;
+    }
+    
+    if (!machineId) {
+      alert('Please select a machine');
+      return;
+    }
+    
+    if (machineType === 'Dryer' && !dryerLocation) {
+      alert('Please select dryer location (Top, Bottom, or Both)');
+      return;
+    }
+    
+    if (!problemType) {
+      alert('Please select a problem type');
+      return;
+    }
+    
+    if (!issue.trim()) {
       alert('Please describe the issue');
       return;
     }
     
-    setSubmitting(true);
-    const success = await onSubmit(form);
-    if (success) {
-      setForm({ machineId: activeMachines[0]?.id || '', issue: '', urgency: 'Medium', notes: '' });
-      onClose();
-    }
-    setSubmitting(false);
+    const request = {
+      machineId,
+      machineType,
+      dryerLocation: machineType === 'Dryer' ? dryerLocation : null,
+      problemType,
+      issue: issue.trim(),
+      urgency,
+      submittedBy: currentUser,
+      submittedDate: new Date().toISOString(),
+      status: 'Pending'
+    };
+    
+    await onSubmit(request);
+    
+    const machine = machines.find(m => m.id === machineId);
+    const machineName = machine ? machine.name : 'Unknown Machine';
+    await sendMaintenanceRequestEmail(request, machineName);
+    
+    onClose();
   };
   
-  const selectedMachine = machines.find(m => m.id === form.machineId);
+  if (!requestSettings) {
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+        <div className="bg-zinc-800 border-2 border-teal-500 p-6 max-w-2xl w-full">
+          <p className="text-zinc-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-      <div className="bg-zinc-800 border-4 border-orange-600 max-w-2xl w-full p-6">
-        <div className="flex justify-between mb-6">
-          <h3 className="text-2xl font-black text-orange-400">🔧 SUBMIT MAINTENANCE REQUEST</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">
-            <Icon name="x" size={24} />
-          </button>
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+      <div className="bg-zinc-800 border-2 border-teal-500 p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <h2 className="text-2xl font-black text-teal-400 mb-4">🔧 SUBMIT MAINTENANCE REQUEST</h2>
+        
+        <div className="mb-4">
+          <label className="block text-zinc-300 font-bold mb-2">Machine Type *</label>
+          <select
+            value={machineType}
+            onChange={(e) => {
+              setMachineType(e.target.value);
+              setMachineId('');
+              setDryerLocation('');
+            }}
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+          >
+            <option value="">-- Select Type --</option>
+            {requestSettings.machineTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
         </div>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-black text-orange-400 mb-2">MACHINE</label>
-            <select 
-              required 
-              value={form.machineId} 
-              onChange={e => setForm({...form, machineId: e.target.value})} 
-              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500"
+        {machineType === 'Dryer' && (
+          <div className="mb-4">
+            <label className="block text-zinc-300 font-bold mb-2">Dryer Location *</label>
+            <select
+              value={dryerLocation}
+              onChange={(e) => setDryerLocation(e.target.value)}
+              className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
             >
-              {activeMachines.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} - {m.model}
-                  {m.status !== 'In Service' && ` (${m.status})`}
-                </option>
+              <option value="">-- Select Location --</option>
+              {requestSettings.dryerLocations.map(loc => (
+                <option key={loc} value={loc}>{loc}</option>
               ))}
             </select>
-            {selectedMachine && (
-              <div className="mt-2 text-xs text-zinc-400">
-                <span className="font-bold">Serial:</span> {selectedMachine.serial} | 
-                <span className="font-bold ml-2">Status:</span> {selectedMachine.status}
-              </div>
-            )}
+            <p className="text-xs text-zinc-500 mt-1">Which dryer in the stack?</p>
           </div>
-          
-          <div>
-            <label className="block text-xs font-black text-orange-400 mb-2">URGENCY</label>
-            <select 
-              value={form.urgency} 
-              onChange={e => setForm({...form, urgency: e.target.value})} 
-              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500"
-            >
-              <option value="Low">🟢 Low - Can wait a few days</option>
-              <option value="Medium">🟡 Medium - Should be addressed soon</option>
-              <option value="High">🔴 High - Needs immediate attention</option>
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-xs font-black text-orange-400 mb-2">DESCRIBE THE ISSUE *</label>
-            <textarea 
-              required
-              value={form.issue} 
-              onChange={e => setForm({...form, issue: e.target.value})} 
-              placeholder="Example: Machine not spinning, making loud grinding noise during wash cycle..."
-              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-32"
-            />
-            <div className="text-xs text-zinc-500 mt-1">
-              Be as specific as possible. Include what's wrong, when it started, and any error messages.
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-xs font-black text-orange-400 mb-2">ADDITIONAL NOTES (Optional)</label>
-            <textarea 
-              value={form.notes} 
-              onChange={e => setForm({...form, notes: e.target.value})} 
-              placeholder="Any other details that might help..."
-              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-orange-500 h-20"
-            />
-          </div>
-          
-          <div className="bg-zinc-900 border-2 border-zinc-700 p-4">
-            <p className="text-sm text-zinc-400 leading-relaxed">
-              <strong className="text-orange-400">📋 What happens next:</strong><br />
-              1. Your request will be submitted to the maintenance team<br />
-              2. A manager will review and assign the request<br />
-              3. You'll be notified when it's resolved
-            </p>
-          </div>
-          
-          <div className="flex gap-4">
-            <button 
-              type="submit"
-              disabled={submitting || !form.issue.trim()}
-              className="flex-1 bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white px-6 py-3 font-black border-2 border-orange-700"
-            >
-              {submitting ? 'SUBMITTING...' : '✓ SUBMIT REQUEST'}
-            </button>
-            <button 
-              type="button"
-              onClick={onClose}
-              className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-black border-2 border-zinc-600"
-            >
-              CANCEL
-            </button>
-          </div>
-        </form>
+        )}
+        
+        <div className="mb-4">
+          <label className="block text-zinc-300 font-bold mb-2">
+            Machine * {machineType && `(${filteredMachines.length} ${machineType}${filteredMachines.length !== 1 ? 's' : ''})`}
+          </label>
+          <select
+            value={machineId}
+            onChange={(e) => setMachineId(e.target.value)}
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+            disabled={!machineType}
+          >
+            <option value="">-- Select Machine --</option>
+            {filteredMachines.filter(m => !m.archived).map(m => (
+              <option key={m.id} value={m.id}>
+                {m.name} - {m.model}
+                {m.status === 'Out of Order' ? ' (OUT OF ORDER)' : ''}
+              </option>
+            ))}
+          </select>
+          {!machineType && (
+            <p className="text-xs text-zinc-500 mt-1">Select a machine type first</p>
+          )}
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-zinc-300 font-bold mb-2">Problem Type *</label>
+          <select
+            value={problemType}
+            onChange={(e) => setProblemType(e.target.value)}
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+          >
+            <option value="">-- Select Problem --</option>
+            {requestSettings.problemTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-zinc-300 font-bold mb-2">
+            Issue Details * 
+            {problemType === 'Other' && ' (Please be specific)'}
+          </label>
+          <textarea
+            value={issue}
+            onChange={(e) => setIssue(e.target.value)}
+            rows={4}
+            placeholder="Describe the problem in detail..."
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+          />
+        </div>
+        
+        <div className="mb-6">
+          <label className="block text-zinc-300 font-bold mb-2">Urgency</label>
+          <select
+            value={urgency}
+            onChange={(e) => setUrgency(e.target.value)}
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+          >
+            <option value="Low">Low - Can wait</option>
+            <option value="Medium">Medium - Should fix soon</option>
+            <option value="High">High - Fix ASAP</option>
+          </select>
+        </div>
+        
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            className="flex-1 bg-teal-600 hover:bg-teal-500 text-white px-6 py-3 font-black border-2 border-teal-700"
+          >
+            ✓ SUBMIT REQUEST
+          </button>
+          <button
+            onClick={onClose}
+            className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 border-2 border-zinc-600"
+          >
+            CANCEL
+          </button>
+        </div>
       </div>
     </div>
   );
