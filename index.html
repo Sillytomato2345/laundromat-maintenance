@@ -703,8 +703,36 @@ const App = () => {
     setSyncStatus('Loading...');
     try {
       // SPRINT 5 FIX: For technicians, use hardcoded shared spreadsheet
-      // Auto-detect was unreliable, so we hardcode the ID for technicians
-      if (userRole === 'technician') {
+      // Check email directly from OAuth instead of relying on userRole state (timing issue)
+      let userEmail = null;
+      let userRoleForEmail = null;
+      
+      try {
+        const token = window.gapi.client.getToken();
+        if (token && token.access_token) {
+          console.log('📂 loadFromCloud: Fetching user email from OAuth...');
+          const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { 'Authorization': `Bearer ${token.access_token}` }
+          });
+          if (response.ok) {
+            const userInfo = await response.json();
+            userEmail = userInfo.email;
+            userRoleForEmail = USER_ROLES[userEmail] || null;
+            console.log('📂 loadFromCloud: User email:', userEmail);
+            console.log('📂 loadFromCloud: Role for email:', userRoleForEmail);
+          }
+        }
+      } catch (e) {
+        console.log('📂 loadFromCloud: Could not get user email, falling back to state check');
+        console.error('📂 loadFromCloud: Email fetch error:', e);
+      }
+      
+      // Check role from email (reliable) or fall back to state (unreliable due to timing)
+      const effectiveRole = userRoleForEmail || userRole;
+      console.log('📂 loadFromCloud: Effective role:', effectiveRole);
+      
+      // If user is technician, use hardcoded spreadsheet
+      if (effectiveRole === 'technician') {
         const SHARED_SPREADSHEET_ID = '1_fUC0hWS8ZmqXkd6_-fMUKwDoW2pB7nYlKZVkBwy7zM';
         console.log('👷 Technician role detected - using hardcoded shared spreadsheet');
         console.log('📋 Shared spreadsheet ID:', SHARED_SPREADSHEET_ID);
