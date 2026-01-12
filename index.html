@@ -3306,6 +3306,8 @@ const App = () => {
         )}
         {activeTab === 'settings' && (
             <SettingsTab
+            currentUser={currentUser}
+            userRole={userRole}
             backups={backups}
             lastBackupTime={lastBackupTime}
             backupStatus={backupStatus}
@@ -6822,7 +6824,7 @@ const WarrantiesTab = ({ warranties, machines, onAdd, onEdit, onDelete }) => {
 };
 
 // Settings Tab - Sprint 4.1 Feature #3 & #4
-const SettingsTab = ({ backups, lastBackupTime, backupStatus, onBackupNow, onRestore, spreadsheetId, machines, equipmentLogs, buildingLogs, parts, partsUsage, scheduledTasks, warranties, year }) => {
+const SettingsTab = ({ currentUser, userRole, backups, lastBackupTime, backupStatus, onBackupNow, onRestore, spreadsheetId, machines, equipmentLogs, buildingLogs, parts, partsUsage, scheduledTasks, warranties, year }) => {
   const [exportStatus, setExportStatus] = useState('');
   
   const formatBackupTime = (isoString) => {
@@ -6959,6 +6961,10 @@ const SettingsTab = ({ backups, lastBackupTime, backupStatus, onBackupNow, onRes
         <Icon name="settings" size={32} className="text-teal-400" />
         <h2 className="text-3xl font-black text-teal-400">SETTINGS</h2>
       </div>
+      
+      {/* Team Management & Request Settings */}
+      <RequestSettingsSection currentUser={currentUser} userRole={userRole} />
+      <TeamManagementSection currentUser={currentUser} userRole={userRole} />
       
       {/* Backup Section */}
       <div className="bg-zinc-800 border-2 border-yellow-600 p-6">
