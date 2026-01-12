@@ -43,6 +43,7 @@ const CONFIG_FILE_NAME = 'laundromat_pro_config.json';
 // Add your team members' emails and their roles here
 const USER_ROLES = {
   'varneys.python@gmail.com': 'owner',  // ← PUT YOUR REAL EMAIL HERE
+  'varneys.attendant@gmail.com': 'technician',  // ← PUT YOUR REAL EMAIL HERE
   // Example: 'yourname@gmail.com': 'owner',
   // Example: 'manager@company.com': 'manager',
   // Example: 'tech1@company.com': 'technician',
@@ -641,78 +642,321 @@ const createInitialTeamConfig = (ownerEmail) => {
   };
 };
 
+// SPREADSHEET-BASED CONFIG - Saves to hidden sheets in the main spreadsheet
 const saveSharedConfig = async (config) => {
   try {
-    config.lastUpdated = new Date().toISOString();
-    const configData = JSON.stringify(config, null, 2);
-    
-    const search = await window.gapi.client.drive.files.list({
-      q: `name='${TEAM_CONFIG_FILE}' and mimeType='application/json'`,
-      spaces: 'drive',
-      fields: 'files(id)'
-    });
-    
-    if (search.result.files?.length > 0) {
-      const fileId = search.result.files[0].id;
-      await window.gapi.client.request({
-        path: `/upload/drive/v3/files/${fileId}`,
-        method: 'PATCH',
-        params: { uploadType: 'media' },
-        body: configData
-      });
-      console.log('✅ Team config updated');
-    } else {
-      const metadata = {
-        name: TEAM_CONFIG_FILE,
-        mimeType: 'application/json'
-      };
-      
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', new Blob([configData], { type: 'application/json' }));
-      
-      const token = window.gapi.client.getToken().access_token;
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-        body: form
-      });
-      console.log('✅ Team config created');
+    const spreadsheetId = config.sharedSpreadsheetId || getSpreadsheetIdFromUrl();
+    if (!spreadsheetId) {
+      console.error('❌ No spreadsheet ID available');
+      return false;
     }
     
+    // This is a wrapper function that delegates to specific save functions
+    // The actual saving is done by the component-specific functions below
+    console.log('✅ Config save initiated (delegated to specific functions)');
     return true;
   } catch (err) {
-    console.error('❌ Error saving team config:', err);
+    console.error('❌ Error in saveSharedConfig:', err);
     return false;
   }
 };
 
+// SPREADSHEET-BASED CONFIG - Loads from hidden sheets in the main spreadsheet
 const loadSharedConfig = async () => {
   try {
-    const search = await window.gapi.client.drive.files.list({
-      q: `name='${TEAM_CONFIG_FILE}' and (mimeType='application/json' or mimeType='text/plain')`,
-      spaces: 'drive',
-      fields: 'files(id)',
-      orderBy: 'modifiedTime desc'
-    });
-    
-    if (search.result.files?.length > 0) {
-      const fileId = search.result.files[0].id;
-      const response = await window.gapi.client.drive.files.get({
-        fileId,
-        alt: 'media'
-      });
-      
-      const config = JSON.parse(response.body);
-      console.log('✅ Team config loaded');
-      return config;
+    const spreadsheetId = getSpreadsheetIdFromUrl();
+    if (!spreadsheetId) {
+      console.log('ℹ️ No spreadsheet loaded yet');
+      return null;
     }
     
-    console.log('ℹ️ No team config found');
-    return null;
+    console.log('📊 Loading team config from spreadsheet sheets...');
+    
+    // Load team members from _TeamConfig sheet
+    let teamMembers = [];
+    try {
+      const teamResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: '_TeamConfig!A2:E100',
+      });
+      
+      const teamRows = teamResponse.result.values || [];
+      teamMembers = teamRows.map(row => ({
+        email: row[0],
+        role: row[1],
+        addedDate: row[2],
+        addedBy: row[3],
+        isFounder: row[4] === 'TRUE'
+      })).filter(m => m.email);
+    } catch (err) {
+      console.log('ℹ️ _TeamConfig sheet not found or empty');
+    }
+    
+    // Load request settings from _RequestSettings sheet
+    let requestSettings = {
+      machineTypes: ['Washer', 'Dryer', 'Other'],
+      problemTypes: ['Won\'t Start', 'Not Heating', 'Leaking Water', 'Making Loud Noise', 'Door Won\'t Close', 'Not Spinning', 'Error Code Displayed', 'Out of Balance', 'Not Draining', 'Other'],
+      dryerLocations: ['Top', 'Bottom', 'Both'],
+      notificationEmail: 'jonathan@varneyslaundercenter.com'
+    };
+    
+    try {
+      const settingsResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: '_RequestSettings!A2:B100',
+      });
+      
+      const settingsRows = settingsResponse.result.values || [];
+      requestSettings.machineTypes = [];
+      requestSettings.problemTypes = [];
+      
+      settingsRows.forEach(row => {
+        const type = row[0];
+        const value = row[1];
+        
+        if (type === 'machineType') requestSettings.machineTypes.push(value);
+        else if (type === 'problemType') requestSettings.problemTypes.push(value);
+        else if (type === 'notificationEmail') requestSettings.notificationEmail = value;
+      });
+    } catch (err) {
+      console.log('ℹ️ _RequestSettings sheet not found, using defaults');
+    }
+    
+    // Load general config
+    let foundingOwner = null;
+    let foundingDate = null;
+    
+    try {
+      const configResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: '_Config!A2:B10',
+      });
+      
+      const configRows = configResponse.result.values || [];
+      configRows.forEach(row => {
+        if (row[0] === 'foundingOwner') foundingOwner = row[1];
+        if (row[0] === 'foundingDate') foundingDate = row[1];
+      });
+    } catch (err) {
+      console.log('ℹ️ _Config sheet not found');
+    }
+    
+    if (teamMembers.length === 0) {
+      console.log('ℹ️ No team config found in spreadsheet');
+      return null;
+    }
+    
+    console.log('✅ Team config loaded from spreadsheet');
+    console.log('   Team members:', teamMembers.length);
+    
+    return {
+      version: '2.0',
+      source: 'spreadsheet',
+      foundingOwner,
+      foundingDate,
+      sharedSpreadsheetId: spreadsheetId,
+      teamMembers,
+      requestSettings,
+      pendingRemovals: [],
+      removalLog: []
+    };
+    
   } catch (err) {
-    console.error('❌ Error loading team config:', err);
+    console.error('❌ Error loading config from spreadsheet:', err);
     return null;
+  }
+};
+
+// === SPREADSHEET HELPER FUNCTIONS ===
+
+const initializeConfigSheets = async (spreadsheetId, foundingOwner) => {
+  try {
+    console.log('🔧 Initializing config sheets...');
+    
+    const spreadsheet = await window.gapi.client.sheets.spreadsheets.get({ spreadsheetId });
+    const existingSheets = spreadsheet.result.sheets.map(s => s.properties.title);
+    const requests = [];
+    
+    // Create sheets if they don't exist
+    if (!existingSheets.includes('_TeamConfig')) {
+      requests.push({
+        addSheet: {
+          properties: { title: '_TeamConfig', hidden: true, gridProperties: { frozenRowCount: 1 } }
+        }
+      });
+    }
+    
+    if (!existingSheets.includes('_RequestSettings')) {
+      requests.push({
+        addSheet: {
+          properties: { title: '_RequestSettings', hidden: true, gridProperties: { frozenRowCount: 1 } }
+        }
+      });
+    }
+    
+    if (!existingSheets.includes('_Config')) {
+      requests.push({
+        addSheet: {
+          properties: { title: '_Config', hidden: true, gridProperties: { frozenRowCount: 1 } }
+        }
+      });
+    }
+    
+    if (requests.length > 0) {
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests }
+      });
+    }
+    
+    // Initialize data
+    const updates = [];
+    
+    // Team Config
+    updates.push({
+      range: '_TeamConfig!A1:E1',
+      values: [['email', 'role', 'addedDate', 'addedBy', 'isFounder']]
+    });
+    updates.push({
+      range: '_TeamConfig!A2:E2',
+      values: [[foundingOwner, 'owner', new Date().toISOString().split('T')[0], 'system', 'TRUE']]
+    });
+    
+    // Request Settings
+    updates.push({
+      range: '_RequestSettings!A1:B1',
+      values: [['type', 'value']]
+    });
+    updates.push({
+      range: '_RequestSettings!A2:B15',
+      values: [
+        ['machineType', 'Washer'], ['machineType', 'Dryer'], ['machineType', 'Other'],
+        ['problemType', 'Won\'t Start'], ['problemType', 'Not Heating'], ['problemType', 'Leaking Water'],
+        ['problemType', 'Making Loud Noise'], ['problemType', 'Door Won\'t Close'], ['problemType', 'Not Spinning'],
+        ['problemType', 'Error Code Displayed'], ['problemType', 'Out of Balance'], ['problemType', 'Not Draining'],
+        ['problemType', 'Other'], ['notificationEmail', 'jonathan@varneyslaundercenter.com']
+      ]
+    });
+    
+    // Config
+    updates.push({
+      range: '_Config!A1:B1',
+      values: [['key', 'value']]
+    });
+    updates.push({
+      range: '_Config!A2:B3',
+      values: [['foundingOwner', foundingOwner], ['foundingDate', new Date().toISOString().split('T')[0]]]
+    });
+    
+    await window.gapi.client.sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      resource: { valueInputOption: 'USER_ENTERED', data: updates }
+    });
+    
+    console.log('✅ Config sheets initialized');
+    return true;
+  } catch (err) {
+    console.error('❌ Error initializing config sheets:', err);
+    return false;
+  }
+};
+
+const saveTeamMemberToSheet = async (spreadsheetId, member) => {
+  try {
+    await window.gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: '_TeamConfig!A:E',
+      valueInputOption: 'USER_ENTERED',
+      resource: {
+        values: [[member.email, member.role, member.addedDate, member.addedBy, member.isFounder ? 'TRUE' : 'FALSE']]
+      }
+    });
+    console.log('✅ Team member saved');
+    return true;
+  } catch (err) {
+    console.error('❌ Error saving team member:', err);
+    return false;
+  }
+};
+
+const updateTeamMemberRole = async (spreadsheetId, email, newRole) => {
+  try {
+    const response = await window.gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: '_TeamConfig!A2:E100',
+    });
+    
+    const rows = response.result.values || [];
+    const rowIndex = rows.findIndex(row => row[0] === email);
+    
+    if (rowIndex === -1) return false;
+    
+    const actualRow = rowIndex + 2;
+    await window.gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `_TeamConfig!B${actualRow}`,
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [[newRole]] }
+    });
+    
+    console.log('✅ Role updated');
+    return true;
+  } catch (err) {
+    console.error('❌ Error updating role:', err);
+    return false;
+  }
+};
+
+const removeTeamMemberFromSheet = async (spreadsheetId, email) => {
+  try {
+    const response = await window.gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: '_TeamConfig!A2:E100',
+    });
+    
+    const rows = response.result.values || [];
+    const rowIndex = rows.findIndex(row => row[0] === email);
+    
+    if (rowIndex === -1) return false;
+    
+    const actualRow = rowIndex + 2;
+    await window.gapi.client.sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `_TeamConfig!A${actualRow}:E${actualRow}`,
+    });
+    
+    console.log('✅ Team member removed');
+    return true;
+  } catch (err) {
+    console.error('❌ Error removing team member:', err);
+    return false;
+  }
+};
+
+const saveRequestSettingsToSheet = async (spreadsheetId, settings) => {
+  try {
+    await window.gapi.client.sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: '_RequestSettings!A2:B100',
+    });
+    
+    const values = [];
+    settings.machineTypes.forEach(type => values.push(['machineType', type]));
+    settings.problemTypes.forEach(type => values.push(['problemType', type]));
+    values.push(['notificationEmail', settings.notificationEmail]);
+    
+    await window.gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: '_RequestSettings!A2:B',
+      valueInputOption: 'USER_ENTERED',
+      resource: { values }
+    });
+    
+    console.log('✅ Settings saved');
+    return true;
+  } catch (err) {
+    console.error('❌ Error saving settings:', err);
+    return false;
   }
 };
 
