@@ -158,7 +158,8 @@ const DEFAULT_REQUEST_SETTINGS = {
     'Other'
   ],
   dryerLocations: ['Top', 'Bottom', 'Both'],
-  notificationEmail: 'jonathan@varneyslaundercenter.com'
+  notificationEmail: 'jonathan@varneyslaundercenter.com',
+  employees: ['Employee 1', 'Employee 2', 'Employee 3'] // Attendant employee names
 };
 
 // ========================================================
@@ -3687,8 +3688,10 @@ const RequestSettingsSection = ({ currentUser, userRole }) => {
   const [loading, setLoading] = useState(true);
   const [editingMachineTypes, setEditingMachineTypes] = useState(false);
   const [editingProblemTypes, setEditingProblemTypes] = useState(false);
+  const [editingEmployees, setEditingEmployees] = useState(false);
   const [newMachineType, setNewMachineType] = useState('');
   const [newProblemType, setNewProblemType] = useState('');
+  const [newEmployee, setNewEmployee] = useState('');
   const [notificationEmail, setNotificationEmail] = useState('');
   
   useEffect(() => {
@@ -3709,8 +3712,15 @@ const RequestSettingsSection = ({ currentUser, userRole }) => {
         machineTypes: DEFAULT_REQUEST_SETTINGS.machineTypes,
         problemTypes: DEFAULT_REQUEST_SETTINGS.problemTypes,
         dryerLocations: DEFAULT_REQUEST_SETTINGS.dryerLocations,
-        notificationEmail: DEFAULT_REQUEST_SETTINGS.notificationEmail
+        notificationEmail: DEFAULT_REQUEST_SETTINGS.notificationEmail,
+        employees: DEFAULT_REQUEST_SETTINGS.employees
       };
+      await saveSharedConfig(config);
+    }
+    
+    // Ensure employees array exists (for existing configs)
+    if (!config.requestSettings.employees) {
+      config.requestSettings.employees = DEFAULT_REQUEST_SETTINGS.employees;
       await saveSharedConfig(config);
     }
     
@@ -3782,6 +3792,39 @@ const RequestSettingsSection = ({ currentUser, userRole }) => {
     if (saved) {
       setTeamConfig({...teamConfig});
       alert('✅ Problem type removed');
+    }
+  };
+  
+  const addEmployee = async () => {
+    if (!newEmployee.trim()) return;
+    
+    if (teamConfig.requestSettings.employees.includes(newEmployee.trim())) {
+      alert('This employee name already exists');
+      return;
+    }
+    
+    teamConfig.requestSettings.employees.push(newEmployee.trim());
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setNewEmployee('');
+      alert('✅ Employee added');
+    }
+  };
+  
+  const removeEmployee = async (name) => {
+    const confirmed = confirm(`Remove employee: ${name}?`);
+    if (!confirmed) return;
+    
+    teamConfig.requestSettings.employees = teamConfig.requestSettings.employees.filter(e => e !== name);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Employee removed');
     }
   };
   
@@ -3934,12 +3977,65 @@ const RequestSettingsSection = ({ currentUser, userRole }) => {
         )}
       </div>
       
+      {/* Employee Names Section */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-lg font-bold text-zinc-300">Employee Names</h4>
+          <button
+            onClick={() => setEditingEmployees(!editingEmployees)}
+            className="text-sm text-teal-400 hover:text-teal-300"
+          >
+            {editingEmployees ? '✓ Done' : '✏️ Edit'}
+          </button>
+        </div>
+        
+        <p className="text-xs text-zinc-400 mb-3">
+          Names shown in the "Employee Name" dropdown when attendants submit maintenance requests
+        </p>
+        
+        <div className="grid grid-cols-2 gap-2">
+          {teamConfig.requestSettings.employees?.map(name => (
+            <div key={name} className="bg-zinc-800 border border-zinc-700 p-2 flex items-center justify-between">
+              <span className="text-zinc-200 text-sm">{name}</span>
+              {editingEmployees && (
+                <button
+                  onClick={() => removeEmployee(name)}
+                  className="text-red-400 hover:text-red-300 text-xs ml-2"
+                >
+                  ❌
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        {editingEmployees && (
+          <div className="mt-3 flex gap-2">
+            <input
+              type="text"
+              value={newEmployee}
+              onChange={(e) => setNewEmployee(e.target.value)}
+              placeholder="Employee name (e.g., John Smith)"
+              className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-200 px-3 py-2"
+              onKeyPress={(e) => e.key === 'Enter' && addEmployee()}
+            />
+            <button
+              onClick={addEmployee}
+              className="bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 font-bold"
+            >
+              ➕ ADD
+            </button>
+          </div>
+        )}
+      </div>
+      
       <div className="mt-6 p-4 bg-zinc-800 border border-zinc-700">
         <div className="text-sm text-zinc-400">
           <div className="font-bold text-zinc-300 mb-2">ℹ️ About These Settings:</div>
           <div>• Machine Types: Used to filter the machine dropdown in maintenance requests</div>
           <div>• Problem Types: Quick-select options for common issues</div>
           <div>• Dryer Location: Automatically shown when "Dryer" is selected</div>
+          <div>• Employee Names: Attendant staff who can submit requests from the kiosk</div>
           <div>• All team members will see these options when submitting requests</div>
         </div>
       </div>
@@ -4285,35 +4381,58 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
 
 // Machine Status Grid Component - Visual status display grouped by bulkhead
 const MachineStatusGrid = ({ machines }) => {
+  // Helper function to extract number from machine name
+  const getMachineNumber = (machine) => {
+    if (machine.number) return machine.number;
+    // Extract number from name like "Washer 31" or "Dryer 3"
+    const match = machine.name.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  };
+  
   // Group machines by type and number ranges (bulkheads)
   const washerGroups = [
     { 
       label: 'Washers 31-34', 
-      machines: machines.filter(m => m.type === 'Washer' && m.number >= 31 && m.number <= 34)
-        .sort((a, b) => (a.number || 0) - (b.number || 0))
+      machines: machines
+        .filter(m => m.type === 'Washer')
+        .map(m => ({...m, number: getMachineNumber(m)}))
+        .filter(m => m.number >= 31 && m.number <= 34)
+        .sort((a, b) => a.number - b.number)
     },
     { 
       label: 'Washers 41-48', 
-      machines: machines.filter(m => m.type === 'Washer' && m.number >= 41 && m.number <= 48)
-        .sort((a, b) => (a.number || 0) - (b.number || 0))
+      machines: machines
+        .filter(m => m.type === 'Washer')
+        .map(m => ({...m, number: getMachineNumber(m)}))
+        .filter(m => m.number >= 41 && m.number <= 48)
+        .sort((a, b) => a.number - b.number)
     },
     { 
       label: 'Washers 51-54', 
-      machines: machines.filter(m => m.type === 'Washer' && m.number >= 51 && m.number <= 54)
-        .sort((a, b) => (a.number || 0) - (b.number || 0))
+      machines: machines
+        .filter(m => m.type === 'Washer')
+        .map(m => ({...m, number: getMachineNumber(m)}))
+        .filter(m => m.number >= 51 && m.number <= 54)
+        .sort((a, b) => a.number - b.number)
     }
   ];
   
   const dryerGroups = [
     { 
       label: 'Dryers 1-7', 
-      machines: machines.filter(m => m.type === 'Dryer' && m.number >= 1 && m.number <= 7)
-        .sort((a, b) => (a.number || 0) - (b.number || 0))
+      machines: machines
+        .filter(m => m.type === 'Dryer')
+        .map(m => ({...m, number: getMachineNumber(m)}))
+        .filter(m => m.number >= 1 && m.number <= 7)
+        .sort((a, b) => a.number - b.number)
     },
     { 
       label: 'Dryers 10-18', 
-      machines: machines.filter(m => m.type === 'Dryer' && m.number >= 10 && m.number <= 18)
-        .sort((a, b) => (a.number || 0) - (b.number || 0))
+      machines: machines
+        .filter(m => m.type === 'Dryer')
+        .map(m => ({...m, number: getMachineNumber(m)}))
+        .filter(m => m.number >= 10 && m.number <= 18)
+        .sort((a, b) => a.number - b.number)
     }
   ];
   
@@ -4743,16 +4862,8 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
     const config = await loadSharedConfig();
     if (config?.teamMembers) {
       setTeamMembers(config.teamMembers);
-      // Default to current user
-      const currentMember = config.teamMembers.find(m => m.email === currentUser);
-      if (currentMember) {
-        setSubmittedByName(currentMember.email); // You can change this to a name field if you add one
-      } else {
-        setSubmittedByName(currentUser);
-      }
-    } else {
-      setSubmittedByName(currentUser);
     }
+    // Don't set default - user must select employee name from dropdown
   };
   
   const loadRequestSettings = async () => {
@@ -4959,6 +5070,24 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
             <option value="Medium">Medium - Should fix soon</option>
             <option value="High">High - Fix ASAP</option>
           </select>
+        </div>
+        
+        {/* Employee Name - who is submitting this request */}
+        <div className="mb-6">
+          <label className="block text-zinc-300 font-bold mb-2">Employee Name *</label>
+          <select
+            value={submittedByName}
+            onChange={(e) => setSubmittedByName(e.target.value)}
+            className="w-full bg-zinc-700 text-zinc-200 px-3 py-2 border-2 border-zinc-600"
+          >
+            <option value="">-- Select Employee --</option>
+            {requestSettings?.employees?.map((employee, idx) => (
+              <option key={idx} value={employee}>{employee}</option>
+            ))}
+          </select>
+          <p className="text-xs text-zinc-400 mt-1">
+            Select the employee who found this issue
+          </p>
         </div>
         
         {/* Mark as Out of Order checkbox */}
