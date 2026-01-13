@@ -1720,7 +1720,7 @@ const App = () => {
         valueInputOption: 'RAW',
         data: [
           { range: 'Locations!A1', values: [['ID', 'Name', 'Address']] },
-          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate', 'Archived', 'PurchasePrice', 'Status', 'OutOfOrderReason']] },
+          { range: 'Machines!A1', values: [['ID', 'LocationID', 'Name', 'Model', 'Serial', 'Type', 'PurchaseDate', 'Archived', 'PurchasePrice', 'Status', 'OutOfOrderReason', 'MachineNumber']] },
           { range: 'Equipment Logs!A1', values: [['ID', 'LocationID', 'MachineID', 'Date', 'Issue', 'Tech', 'Cost', 'Hours', 'PartsUsed', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Building Logs!A1', values: [['ID', 'LocationID', 'Date', 'Category', 'Issue', 'Tech', 'Cost', 'Hours', 'Notes', 'Files', 'Locked', 'Warranty']] },
           { range: 'Vendors!A1', values: [['ID', 'Name', 'Contact', 'Phone', 'Email', 'Specialties', 'Rate', 'Notes']] },
@@ -1757,7 +1757,7 @@ const App = () => {
       console.log('📊 loadAllData: Calling batchGet...');
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:K', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:L', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       console.log('📊 loadAllData: batchGet response received');
@@ -1815,7 +1815,8 @@ const App = () => {
         archived: r[7] === 'true',
         purchasePrice: r[8] || '',
         status: r[9] || 'In Service', // Sprint 5: Default to 'In Service'
-        outOfOrderReason: r[10] || '' // Sprint 5
+        outOfOrderReason: r[10] || '', // Sprint 5
+        machineNumber: r[11] || '' // Machine number field
       })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
@@ -2092,14 +2093,15 @@ const App = () => {
       ...machine, 
       archived: false,
       status: 'In Service', // Sprint 5: Default status
-      outOfOrderReason: '' // Sprint 5
+      outOfOrderReason: '', // Sprint 5
+      machineNumber: machine.machineNumber || '' // New: machine number field
     };
     try {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: 'Machines!A:K',
+        range: 'Machines!A:L',
         valueInputOption: 'RAW',
-        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false', newMachine.purchasePrice || '', newMachine.status, newMachine.outOfOrderReason]] },
+        resource: { values: [[newMachine.id, newMachine.locationId, newMachine.name, newMachine.model, newMachine.serial, newMachine.type, newMachine.purchaseDate, 'false', newMachine.purchasePrice || '', newMachine.status, newMachine.outOfOrderReason, newMachine.machineNumber]] },
       });
       setMachines([...machines, newMachine]);
       setModal(null);
@@ -2116,9 +2118,9 @@ const App = () => {
       
       await window.gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `Machines!A${rowNum}:K${rowNum}`,
+        range: `Machines!A${rowNum}:L${rowNum}`,
         valueInputOption: 'RAW',
-        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false', updated.purchasePrice || '', updated.status || 'In Service', updated.outOfOrderReason || '']] },
+        resource: { values: [[updated.id, updated.locationId, updated.name, updated.model, updated.serial, updated.type, updated.purchaseDate, updated.archived ? 'true' : 'false', updated.purchasePrice || '', updated.status || 'In Service', updated.outOfOrderReason || '', updated.machineNumber || '']] },
       });
       
       setMachines(machines.map(m => m.id === id ? updated : m));
@@ -4403,10 +4405,35 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
   );
 };
 
+// Helper function to get machine display name
+// Priority: Custom name (if not default pattern) > Type + Number > Name field
+const getMachineDisplayName = (machine) => {
+  if (!machine) return 'Unknown Machine';
+  
+  // Check if name is a custom name (not just "Type Number" pattern)
+  const defaultPattern = new RegExp(`^${machine.type}\\s*\\d+$`, 'i'); // Matches "Washer 31", "Dryer 3", etc.
+  const hasCustomName = machine.name && !defaultPattern.test(machine.name.trim());
+  
+  // If has custom name that's not default pattern, use it
+  if (hasCustomName) {
+    return machine.name;
+  }
+  
+  // Otherwise, use Type + MachineNumber
+  if (machine.machineNumber) {
+    return `${machine.type} ${machine.machineNumber}`;
+  }
+  
+  // Fallback to name field if it exists
+  return machine.name || `${machine.type} (No Number)`;
+};
+
 // Machine Status Grid Component - Visual status display grouped by bulkhead
 const MachineStatusGrid = ({ machines }) => {
-  // Helper function to extract number from machine name
+  // Helper function to extract number from machine
   const getMachineNumber = (machine) => {
+    // Use machineNumber field if available
+    if (machine.machineNumber) return parseInt(machine.machineNumber);
     if (machine.number) return machine.number;
     // Extract number from name like "Washer 31" or "Dryer 3"
     const match = machine.name.match(/(\d+)/);
@@ -4469,9 +4496,9 @@ const MachineStatusGrid = ({ machines }) => {
     return (
       <div 
         className={`${bgColor} ${borderColor} ${textColor} border-2 px-3 py-2 font-black text-center min-w-[60px] hover:opacity-80 cursor-pointer transition-opacity`}
-        title={`${machine.name}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
+        title={`${getMachineDisplayName(machine)}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
       >
-        <div className="text-sm">{machine.number || machine.name.replace(/\D/g, '')}</div>
+        <div className="text-sm">{machine.number || machine.machineNumber || getMachineNumber(machine)}</div>
       </div>
     );
   };
@@ -5047,7 +5074,7 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
             <option value="">-- Select Machine --</option>
             {filteredMachines.filter(m => !m.archived).map(m => (
               <option key={m.id} value={m.id}>
-                {m.name} - {m.model}
+                {getMachineDisplayName(m)} - {m.model}
                 {m.status === 'Out of Order' ? ' (OUT OF ORDER)' : ''}
               </option>
             ))}
@@ -5452,7 +5479,7 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                                   )}
                                   <div className="flex justify-between mb-3">
                                     <div>
-                                      <h3 className="text-lg font-black text-white">{m.name}</h3>
+                                      <h3 className="text-lg font-black text-white">{getMachineDisplayName(m)}</h3>
                                       <p className="text-xs text-zinc-400 font-bold">SN: {m.serial}</p>
                                       {/* Sprint 5: Show out of order reason */}
                                       {m.status !== 'In Service' && m.outOfOrderReason && (
@@ -6592,6 +6619,7 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
 const MachineModal = ({ machine, onClose, onSave }) => {
   const [form, setForm] = useState(machine || { 
     name: '', 
+    machineNumber: '',
     model: '', 
     serial: '', 
     type: 'Washer', 
@@ -6601,7 +6629,19 @@ const MachineModal = ({ machine, onClose, onSave }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSave(form);
+    
+    // Auto-generate name if custom name is blank
+    const submitForm = {...form};
+    if (!submitForm.name || submitForm.name.trim() === '') {
+      // Generate default name: Type + MachineNumber
+      if (submitForm.machineNumber) {
+        submitForm.name = `${submitForm.type} ${submitForm.machineNumber}`;
+      } else {
+        submitForm.name = `${submitForm.type} (No Number)`;
+      }
+    }
+    
+    onSave(submitForm);
   };
 
   return (
@@ -6615,10 +6655,6 @@ const MachineModal = ({ machine, onClose, onSave }) => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-black text-teal-400 mb-2">MACHINE NAME</label>
-            <input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" placeholder="e.g., Washer #1" />
-          </div>
-          <div>
             <label className="block text-xs font-black text-teal-400 mb-2">TYPE</label>
             <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500">
               <option>Washer</option>
@@ -6627,6 +6663,28 @@ const MachineModal = ({ machine, onClose, onSave }) => {
               <option>Vending Machine</option>
               <option>Other</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">MACHINE NUMBER</label>
+            <input 
+              type="text" 
+              value={form.machineNumber} 
+              onChange={e => setForm({...form, machineNumber: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" 
+              placeholder="e.g., 31, 5, 10" 
+            />
+            <p className="text-xs text-zinc-400 mt-1">Used for standard equipment (Washers, Dryers)</p>
+          </div>
+          <div>
+            <label className="block text-xs font-black text-teal-400 mb-2">CUSTOM NAME (Optional)</label>
+            <input 
+              type="text" 
+              value={form.name} 
+              onChange={e => setForm({...form, name: e.target.value})} 
+              className="w-full bg-zinc-900 border-2 border-zinc-700 text-white px-3 py-2 font-bold outline-none focus:border-teal-500" 
+              placeholder="e.g., Soap Vend, Snack Machine" 
+            />
+            <p className="text-xs text-zinc-400 mt-1">If blank, displays as "Type + Number" (e.g., Washer 31)</p>
           </div>
           <div>
             <label className="block text-xs font-black text-teal-400 mb-2">MODEL</label>
