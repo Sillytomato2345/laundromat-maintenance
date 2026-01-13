@@ -643,16 +643,30 @@ const createInitialTeamConfig = (ownerEmail) => {
 
 // Helper function to get spreadsheet ID from URL or localStorage
 const getSpreadsheetIdFromUrl = () => {
-  // Try to get from URL first
+  // 1. Check global variable (set by loadAllData)
+  if (window.currentSpreadsheetId) {
+    console.log('✓ Spreadsheet ID from global variable:', window.currentSpreadsheetId);
+    return window.currentSpreadsheetId;
+  }
+  
+  // 2. Try to get from URL
   const url = window.location.href;
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match) return match[1];
+  if (match) {
+    console.log('✓ Spreadsheet ID from URL:', match[1]);
+    window.currentSpreadsheetId = match[1];
+    return match[1];
+  }
   
-  // Fallback: try to get from stored spreadsheet ID
+  // 3. Try to get from localStorage
   const stored = localStorage.getItem('spreadsheetId');
-  if (stored) return stored;
+  if (stored) {
+    console.log('✓ Spreadsheet ID from localStorage:', stored);
+    window.currentSpreadsheetId = stored;
+    return stored;
+  }
   
-  // No hardcoded backup - return null if not found
+  // 4. No spreadsheet ID found
   console.log('⚠️ No spreadsheet ID found');
   return null;
 };
@@ -677,15 +691,15 @@ const saveSharedConfig = async (config) => {
 };
 
 // SPREADSHEET-BASED CONFIG - Loads from hidden sheets in the main spreadsheet
-const loadSharedConfig = async () => {
+const loadSharedConfig = async (providedSpreadsheetId = null) => {
   try {
-    const spreadsheetId = getSpreadsheetIdFromUrl();
+    const spreadsheetId = providedSpreadsheetId || getSpreadsheetIdFromUrl();
     if (!spreadsheetId) {
       console.log('ℹ️ No spreadsheet loaded yet');
       return null;
     }
     
-    console.log('📊 Loading team config from spreadsheet sheets...');
+    console.log('📊 Loading team config from spreadsheet:', spreadsheetId);
     
     // Load team members from _TeamConfig sheet
     let teamMembers = [];
@@ -1679,6 +1693,12 @@ const App = () => {
 
   const loadAllData = async (id) => {
     console.log('📊 loadAllData: Starting with spreadsheet ID:', id);
+    
+    // Store spreadsheet ID globally for other functions to use
+    window.currentSpreadsheetId = id;
+    localStorage.setItem('spreadsheetId', id);
+    console.log('✅ Spreadsheet ID stored:', id);
+    
     setLoading(true);
     try {
       console.log('📊 loadAllData: Calling batchGet...');
@@ -3900,15 +3920,28 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
   
   const loadTeamConfig = async () => {
     setLoading(true);
-    let config = await loadSharedConfig();
+    
+    // Get spreadsheet ID
+    const spreadsheetId = getSpreadsheetIdFromUrl();
+    
+    if (!spreadsheetId) {
+      console.log('⚠️ No spreadsheet loaded yet, waiting...');
+      setLoading(false);
+      return;
+    }
+    
+    console.log('📊 TeamManagement: Loading config from spreadsheet:', spreadsheetId);
+    let config = await loadSharedConfig(spreadsheetId);
     
     if (!config) {
-      config = createInitialTeamConfig(currentUser);
-      await saveSharedConfig(config);
+      console.log('ℹ️ No team config found - sheets may need initialization');
+      setTeamConfig(null);
+      setLoading(false);
+      return;
     }
     
     setTeamConfig(config);
-    setSpreadsheetIdLocal(config.sharedSpreadsheetId || '');
+    setSpreadsheetIdLocal(config.sharedSpreadsheetId || spreadsheetId);
     setLoading(false);
   };
   
