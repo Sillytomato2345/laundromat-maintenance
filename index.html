@@ -3582,6 +3582,7 @@ const App = () => {
             onDeleteNote={deleteMachineNote}
             permissions={permissions}
             onMarkOutOfOrder={(machine) => setModal({ type: 'outOfOrder', data: machine })}
+            onMarkInService={markMachineInService}
           />
         )}
         {activeTab === 'repairs' && (
@@ -5391,7 +5392,7 @@ const MachineNotesModal = ({ machine, notes, onClose, onAddNote, onDeleteNote })
 };
 
 // Equipment Tab with ARCHIVE feature and NESTED GROUPING
-const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote, permissions, onMarkOutOfOrder }) => {
+const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onAdd, onEdit, onDelete, onArchive, onUnarchive, machineNotes, onAddNote, onDeleteNote, permissions, onMarkOutOfOrder, onMarkInService }) => {
   // DEBUG: Log what props we're receiving
   console.log('🔧 EquipmentTab: Rendering with', machines?.length || 0, 'machines');
   console.log('🔧 EquipmentTab: showArchived:', showArchived);
@@ -5529,7 +5530,7 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                                       )}
                                       {/* Mark In Service button - only for out-of-order machines */}
                                       {permissions.canMarkOutOfOrder && !isArchived && m.status !== 'In Service' && (
-                                        <button onClick={(e) => { e.stopPropagation(); markMachineInService(m.id); }} className="text-green-400 hover:text-green-300 font-bold" title="Mark In Service">
+                                        <button onClick={(e) => { e.stopPropagation(); onMarkInService(m.id); }} className="text-green-400 hover:text-green-300 font-bold" title="Mark In Service">
                                           <Icon name="check" size={16} />
                                         </button>
                                       )}
