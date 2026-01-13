@@ -1317,6 +1317,12 @@ const completeFoundingOwnerRemoval = async (config, email, currentUser) => {
 // === EMAIL NOTIFICATION FOR MAINTENANCE REQUESTS ===
 
 const sendMaintenanceRequestEmail = async (request, machineName) => {
+  // Skip if EMAIL_SCRIPT_URL is not configured
+  if (!EMAIL_SCRIPT_URL || EMAIL_SCRIPT_URL === '') {
+    console.log('📧 Email notifications disabled (no EMAIL_SCRIPT_URL configured)');
+    return false;
+  }
+  
   try {
     // Get notification email from settings
     const config = await loadSharedConfig();
@@ -1337,11 +1343,17 @@ const sendMaintenanceRequestEmail = async (request, machineName) => {
       markedOutOfOrder: request.markAsOutOfOrder ? 'true' : 'false'
     });
     
-    // Call the Google Apps Script
+    // Call the Google Apps Script with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
     const response = await fetch(EMAIL_SCRIPT_URL + '?' + params, {
       method: 'GET',
-      redirect: 'follow'
+      redirect: 'follow',
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     const result = await response.json();
     
@@ -1351,12 +1363,17 @@ const sendMaintenanceRequestEmail = async (request, machineName) => {
       console.log('   Subject:', result.subject);
       return true;
     } else {
-      console.error('❌ Email failed:', result.error);
+      console.warn('⚠️ Email send failed (non-critical):', result.error);
       return false;
     }
     
   } catch (err) {
-    console.error('❌ Email send error:', err);
+    // Don't spam console with errors - email is optional
+    if (err.name === 'AbortError') {
+      console.warn('⚠️ Email notification timed out (non-critical)');
+    } else {
+      console.warn('⚠️ Email notification failed (non-critical):', err.message);
+    }
     // Don't fail the request submission if email fails
     return false;
   }
@@ -3268,17 +3285,25 @@ const App = () => {
 
   const markMachineInService = async (machineId) => {
     try {
+      console.log('🟢 Marking machine back in service:', machineId);
+      
       const updates = {
         status: 'In Service',
         outOfOrderReason: ''
       };
       
       await updateMachine(machineId, updates);
-      setSyncStatus('Machine marked back in service');
+      
+      // Reload data to refresh the display
+      await loadAllData(spreadsheetId);
+      
+      setSyncStatus('✅ Machine marked back in service');
       setTimeout(() => setSyncStatus(''), 3000);
+      
       return true;
     } catch (err) {
-      console.error('Mark in service error:', err);
+      console.error('❌ Mark in service error:', err);
+      alert('Failed to mark machine in service: ' + err.message);
       setError('Failed to mark machine in service');
       return false;
     }
@@ -4406,7 +4431,7 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
 };
 
 // Helper function to get machine display name
-// Priority: Custom name (if not default pattern) > Type + Number > Name field
+// Priority: Custom name (if not default pattern) > Type + Number > Name field > Fallback
 const getMachineDisplayName = (machine) => {
   if (!machine) return 'Unknown Machine';
   
@@ -4414,18 +4439,23 @@ const getMachineDisplayName = (machine) => {
   const defaultPattern = new RegExp(`^${machine.type}\\s*\\d+$`, 'i'); // Matches "Washer 31", "Dryer 3", etc.
   const hasCustomName = machine.name && !defaultPattern.test(machine.name.trim());
   
-  // If has custom name that's not default pattern, use it
+  // Priority 1: If has custom name that's not default pattern, use it
   if (hasCustomName) {
-    return machine.name;
+    return machine.name; // "Soap Vend", "Snack Machine"
   }
   
-  // Otherwise, use Type + MachineNumber
-  if (machine.machineNumber) {
-    return `${machine.type} ${machine.machineNumber}`;
+  // Priority 2: Use Type + MachineNumber
+  if (machine.machineNumber && machine.machineNumber.trim() !== '') {
+    return `${machine.type} ${machine.machineNumber}`; // "Washer 31"
   }
   
-  // Fallback to name field if it exists
-  return machine.name || `${machine.type} (No Number)`;
+  // Priority 3: Fallback to name field if it exists (for old machines)
+  if (machine.name && machine.name.trim() !== '') {
+    return machine.name; // "Washer 31" from old data
+  }
+  
+  // Priority 4: Last resort fallback
+  return `${machine.type} (No Number)`;
 };
 
 // Machine Status Grid Component - Visual status display grouped by bulkhead
@@ -4987,8 +5017,12 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
     await onSubmit(request);
     
     const machine = machines.find(m => m.id === machineId);
-    const machineName = machine ? machine.name : 'Unknown Machine';
-    await sendMaintenanceRequestEmail(request, machineName);
+    const machineName = machine ? getMachineDisplayName(machine) : 'Unknown Machine';
+    
+    // Send email notification (non-blocking - don't wait for it)
+    sendMaintenanceRequestEmail(request, machineName).catch(err => {
+      console.warn('⚠️ Email notification failed (non-critical)');
+    });
     
     onClose();
   };
@@ -6763,15 +6797,44 @@ const ReportsTab = ({ machines, equipmentLogs, buildingLogs, parts, partsUsage, 
 
 // Machine Modal (from Sprint 1)
 const MachineModal = ({ machine, onClose, onSave }) => {
-  const [form, setForm] = useState(machine || { 
-    name: '', 
-    machineNumber: '',
-    model: '', 
-    serial: '', 
-    type: 'Washer', 
-    purchaseDate: '',
-    purchasePrice: ''
-  });
+  // Smart initialization for existing machines
+  const initializeForm = () => {
+    if (!machine) {
+      return {
+        name: '', 
+        machineNumber: '',
+        model: '', 
+        serial: '', 
+        type: 'Washer', 
+        purchaseDate: '',
+        purchasePrice: ''
+      };
+    }
+    
+    // For existing machines, extract number from name if machineNumber is empty
+    let machineNumber = machine.machineNumber || '';
+    let customName = machine.name || '';
+    
+    // If no machineNumber but name contains a number pattern like "Washer 31"
+    if (!machineNumber && customName) {
+      const defaultPattern = new RegExp(`^${machine.type}\\s*(\\d+)$`, 'i');
+      const match = customName.match(defaultPattern);
+      if (match) {
+        // Extract the number
+        machineNumber = match[1];
+        // Clear the custom name since it's just the default pattern
+        customName = '';
+      }
+    }
+    
+    return {
+      ...machine,
+      machineNumber: machineNumber,
+      name: customName
+    };
+  };
+  
+  const [form, setForm] = useState(initializeForm());
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -6780,10 +6843,11 @@ const MachineModal = ({ machine, onClose, onSave }) => {
     const submitForm = {...form};
     if (!submitForm.name || submitForm.name.trim() === '') {
       // Generate default name: Type + MachineNumber
-      if (submitForm.machineNumber) {
+      if (submitForm.machineNumber && submitForm.machineNumber.trim() !== '') {
         submitForm.name = `${submitForm.type} ${submitForm.machineNumber}`;
       } else {
-        submitForm.name = `${submitForm.type} (No Number)`;
+        // If no number either, keep existing name or use fallback
+        submitForm.name = machine?.name || `${submitForm.type} (No Number)`;
       }
     }
     
