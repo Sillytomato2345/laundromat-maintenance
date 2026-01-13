@@ -684,9 +684,13 @@ const saveSharedConfig = async (config) => {
       return false;
     }
     
-    // This is a wrapper function that delegates to specific save functions
-    // The actual saving is done by the component-specific functions below
-    console.log('✅ Config save initiated (delegated to specific functions)');
+    // Save request settings if they exist
+    if (config.requestSettings) {
+      console.log('💾 Saving request settings to spreadsheet...');
+      await saveRequestSettingsToSheet(spreadsheetId, config.requestSettings);
+    }
+    
+    console.log('✅ Config saved to spreadsheet');
     return true;
   } catch (err) {
     console.error('❌ Error in saveSharedConfig:', err);
@@ -750,7 +754,21 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
         if (type === 'machineType') requestSettings.machineTypes.push(value);
         else if (type === 'problemType') requestSettings.problemTypes.push(value);
         else if (type === 'notificationEmail') requestSettings.notificationEmail = value;
+        else if (type === 'employees') {
+          // Parse employees JSON array
+          try {
+            requestSettings.employees = JSON.parse(value);
+          } catch (e) {
+            console.warn('Could not parse employees array:', e);
+            requestSettings.employees = DEFAULT_REQUEST_SETTINGS.employees;
+          }
+        }
       });
+      
+      // Ensure employees array exists
+      if (!requestSettings.employees) {
+        requestSettings.employees = DEFAULT_REQUEST_SETTINGS.employees;
+      }
     } catch (err) {
       console.log('ℹ️ _RequestSettings sheet not found, using defaults');
     }
@@ -977,6 +995,10 @@ const saveRequestSettingsToSheet = async (spreadsheetId, settings) => {
     settings.machineTypes.forEach(type => values.push(['machineType', type]));
     settings.problemTypes.forEach(type => values.push(['problemType', type]));
     values.push(['notificationEmail', settings.notificationEmail]);
+    // Save employees as JSON array
+    if (settings.employees && settings.employees.length > 0) {
+      values.push(['employees', JSON.stringify(settings.employees)]);
+    }
     
     await window.gapi.client.sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -985,7 +1007,7 @@ const saveRequestSettingsToSheet = async (spreadsheetId, settings) => {
       resource: { values }
     });
     
-    console.log('✅ Settings saved');
+    console.log('✅ Settings saved (including employees)');
     return true;
   } catch (err) {
     console.error('❌ Error saving settings:', err);
@@ -5438,10 +5460,16 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
                                       )}
                                     </div>
                                     <div className="flex gap-2">
-                                      {/* Sprint 5: Mark Out of Order button (techs + managers) */}
+                                      {/* Sprint 5: Mark Out of Order button (techs + managers) - only for in-service machines */}
                                       {permissions.canMarkOutOfOrder && !isArchived && m.status === 'In Service' && (
                                         <button onClick={(e) => { e.stopPropagation(); onMarkOutOfOrder(m); }} className="text-red-400 hover:text-red-300" title="Mark Out of Order">
                                           <Icon name="alert" size={16} />
+                                        </button>
+                                      )}
+                                      {/* Mark In Service button - only for out-of-order machines */}
+                                      {permissions.canMarkOutOfOrder && !isArchived && m.status !== 'In Service' && (
+                                        <button onClick={(e) => { e.stopPropagation(); markMachineInService(m.id); }} className="text-green-400 hover:text-green-300 font-bold" title="Mark In Service">
+                                          <Icon name="check" size={16} />
                                         </button>
                                       )}
                                       <button onClick={(e) => { e.stopPropagation(); setNotesModal(m); }} className="text-yellow-400 hover:text-yellow-300" title="View/Add Notes">
