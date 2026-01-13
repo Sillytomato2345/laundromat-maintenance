@@ -641,6 +641,22 @@ const createInitialTeamConfig = (ownerEmail) => {
   };
 };
 
+// Helper function to get spreadsheet ID from URL or localStorage
+const getSpreadsheetIdFromUrl = () => {
+  // Try to get from URL first
+  const url = window.location.href;
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) return match[1];
+  
+  // Fallback: try to get from stored spreadsheet ID
+  const stored = localStorage.getItem('spreadsheetId');
+  if (stored) return stored;
+  
+  // No hardcoded backup - return null if not found
+  console.log('⚠️ No spreadsheet ID found');
+  return null;
+};
+
 // SPREADSHEET-BASED CONFIG - Saves to hidden sheets in the main spreadsheet
 const saveSharedConfig = async (config) => {
   try {
