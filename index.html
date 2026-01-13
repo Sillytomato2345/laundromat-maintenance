@@ -4519,7 +4519,8 @@ const MachineStatusGrid = ({ machines }) => {
   ];
   
   const MachineBox = ({ machine }) => {
-    const isOutOfOrder = machine.outOfOrder || machine.archived;
+    // Check machine.status field, not machine.outOfOrder
+    const isOutOfOrder = machine.status === 'Out of Order' || machine.archived;
     const bgColor = isOutOfOrder ? 'bg-red-600' : 'bg-green-600';
     const borderColor = isOutOfOrder ? 'border-red-700' : 'border-green-700';
     const textColor = 'text-white';
