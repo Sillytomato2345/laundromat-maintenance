@@ -3107,6 +3107,12 @@ const App = () => {
     };
 
     try {
+      // If user marked machine as out of order, do that first
+      if (requestForm.markAsOutOfOrder) {
+        console.log('🚫 Marking machine as out of order:', requestForm.machineId);
+        await markMachineOutOfOrder(requestForm.machineId, 'Maintenance Request', requestForm.issue.trim());
+      }
+      
       // Create sheet if it doesn't exist
       try {
         await window.gapi.client.sheets.spreadsheets.get({
@@ -4260,6 +4266,113 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
   );
 };
 
+// Machine Status Grid Component - Visual status display grouped by bulkhead
+const MachineStatusGrid = ({ machines }) => {
+  // Group machines by type and number ranges (bulkheads)
+  const washerGroups = [
+    { 
+      label: 'Washers 31-34', 
+      machines: machines.filter(m => m.type === 'Washer' && m.number >= 31 && m.number <= 34)
+        .sort((a, b) => (a.number || 0) - (b.number || 0))
+    },
+    { 
+      label: 'Washers 41-48', 
+      machines: machines.filter(m => m.type === 'Washer' && m.number >= 41 && m.number <= 48)
+        .sort((a, b) => (a.number || 0) - (b.number || 0))
+    },
+    { 
+      label: 'Washers 51-54', 
+      machines: machines.filter(m => m.type === 'Washer' && m.number >= 51 && m.number <= 54)
+        .sort((a, b) => (a.number || 0) - (b.number || 0))
+    }
+  ];
+  
+  const dryerGroups = [
+    { 
+      label: 'Dryers 1-7', 
+      machines: machines.filter(m => m.type === 'Dryer' && m.number >= 1 && m.number <= 7)
+        .sort((a, b) => (a.number || 0) - (b.number || 0))
+    },
+    { 
+      label: 'Dryers 10-18', 
+      machines: machines.filter(m => m.type === 'Dryer' && m.number >= 10 && m.number <= 18)
+        .sort((a, b) => (a.number || 0) - (b.number || 0))
+    }
+  ];
+  
+  const MachineBox = ({ machine }) => {
+    const isOutOfOrder = machine.outOfOrder || machine.archived;
+    const bgColor = isOutOfOrder ? 'bg-red-600' : 'bg-green-600';
+    const borderColor = isOutOfOrder ? 'border-red-700' : 'border-green-700';
+    const textColor = 'text-white';
+    
+    return (
+      <div 
+        className={`${bgColor} ${borderColor} ${textColor} border-2 px-3 py-2 font-black text-center min-w-[60px] hover:opacity-80 cursor-pointer transition-opacity`}
+        title={`${machine.name}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
+      >
+        <div className="text-sm">{machine.number || machine.name.replace(/\D/g, '')}</div>
+      </div>
+    );
+  };
+  
+  return (
+    <div className="bg-zinc-800 border-2 border-teal-500 p-6">
+      <h3 className="text-2xl font-black text-teal-400 mb-6">🔧 MACHINE STATUS - LIVE VIEW</h3>
+      
+      {/* Legend */}
+      <div className="flex gap-6 mb-6 text-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-green-600 border-2 border-green-700"></div>
+          <span className="text-green-400 font-bold">In Service</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-red-600 border-2 border-red-700"></div>
+          <span className="text-red-400 font-bold">Out of Order</span>
+        </div>
+      </div>
+      
+      {/* Washers */}
+      <div className="mb-8">
+        <h4 className="text-xl font-black text-teal-400 mb-4">WASHERS</h4>
+        <div className="space-y-4">
+          {washerGroups.map((group, idx) => (
+            group.machines.length > 0 && (
+              <div key={idx}>
+                <div className="text-sm text-zinc-400 font-bold mb-2">{group.label}</div>
+                <div className="flex gap-2 flex-wrap">
+                  {group.machines.map(machine => (
+                    <MachineBox key={machine.id} machine={machine} />
+                  ))}
+                </div>
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+      
+      {/* Dryers */}
+      <div>
+        <h4 className="text-xl font-black text-teal-400 mb-4">DRYERS</h4>
+        <div className="space-y-4">
+          {dryerGroups.map((group, idx) => (
+            group.machines.length > 0 && (
+              <div key={idx}>
+                <div className="text-sm text-zinc-400 font-bold mb-2">{group.label}</div>
+                <div className="flex gap-2 flex-wrap">
+                  {group.machines.map(machine => (
+                    <MachineBox key={machine.id} machine={machine} />
+                  ))}
+                </div>
+              </div>
+            )
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Dashboard Component (from Sprint 1 - enhanced)
 const Dashboard = ({ alerts, machines, equipmentLogs, buildingLogs, parts, year, maintenanceRequests = [], permissions, onSubmitRequest, onViewRequest }) => {
   // DEBUG: Log what props Dashboard is receiving
@@ -4304,6 +4417,11 @@ if (permissions.dashboardOnly) {
           <div className="text-3xl font-black text-red-400">{outOfOrderMachines.length}</div>
           <div className="text-xs text-zinc-500 mt-2">Machines down</div>
         </div>
+      </div>
+      
+      {/* Machine Status Grid */}
+      <div className="mb-6">
+        <MachineStatusGrid machines={machines} />
       </div>
       
       {outOfOrderMachines.length > 0 && (
@@ -4493,6 +4611,9 @@ if (permissions.dashboardOnly) {
         </div>
       )}
 
+      {/* Machine Status Grid */}
+      <MachineStatusGrid machines={machines} />
+
       {alerts.length > 0 && (
         <div className="bg-zinc-800 border-2 border-red-600 p-6">
           <h2 className="text-2xl font-black text-red-400 mb-4 flex items-center gap-2">
@@ -4591,6 +4712,7 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
   const [problemType, setProblemType] = useState('');
   const [issue, setIssue] = useState('');
   const [urgency, setUrgency] = useState('Medium');
+  const [markAsOutOfOrder, setMarkAsOutOfOrder] = useState(false);
   const [requestSettings, setRequestSettings] = useState(null);
   
   useEffect(() => {
@@ -4650,7 +4772,8 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
       urgency,
       submittedBy: currentUser,
       submittedDate: new Date().toISOString(),
-      status: 'Pending'
+      status: 'Pending',
+      markAsOutOfOrder: markAsOutOfOrder
     };
     
     await onSubmit(request);
@@ -4774,6 +4897,24 @@ const MaintenanceRequestModal = ({ machines, currentUser, onClose, onSubmit }) =
             <option value="Medium">Medium - Should fix soon</option>
             <option value="High">High - Fix ASAP</option>
           </select>
+        </div>
+        
+        {/* Mark as Out of Order checkbox */}
+        <div className="mb-6 bg-red-900/20 border-2 border-red-600 p-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={markAsOutOfOrder}
+              onChange={(e) => setMarkAsOutOfOrder(e.target.checked)}
+              className="w-5 h-5 cursor-pointer"
+            />
+            <span className="text-red-400 font-bold text-lg">
+              🚫 Mark this machine as OUT OF ORDER
+            </span>
+          </label>
+          <p className="text-xs text-red-300 mt-2 ml-8">
+            This will immediately mark the machine as unavailable for customer use
+          </p>
         </div>
         
         <div className="flex gap-3">
