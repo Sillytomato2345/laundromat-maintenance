@@ -1499,6 +1499,14 @@ const App = () => {
   // Sprint 5: Get permissions for current user
   const permissions = ROLES[userRole] || ROLES.viewer;
 
+  // Enforce dashboard-only for attendants
+  React.useEffect(() => {
+    if (userRole === 'attendant' && activeTab !== 'dashboard') {
+      console.log('⚠️ Attendant attempted to access', activeTab, '- redirecting to dashboard');
+      setActiveTab('dashboard');
+    }
+  }, [userRole, activeTab]);
+
   const loadFromCloud = async () => {
     console.log('📂 loadFromCloud: Starting...');
     setSyncStatus('Loading...');
@@ -3422,17 +3430,17 @@ const App = () => {
           <div ref={tabScrollRef} className="flex gap-2 mt-4 border-t-2 border-slate-500 pt-4 overflow-x-auto horizontal-scroll">
             {[
               { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD', requiresPermission: null },
-              { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT', requiresPermission: null },
-              { id: 'repairs', icon: 'calendar', label: 'REPAIRS', requiresPermission: 'canView' },
-              { id: 'calendar', icon: 'calendar', label: 'CALENDAR', requiresPermission: 'canView' },
-              { id: 'building', icon: 'home', label: 'BUILDING', requiresPermission: 'canView' },
+              { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT', requiresPermission: 'canAccessAllTabs' },
+              { id: 'repairs', icon: 'calendar', label: 'REPAIRS', requiresPermission: 'canAccessAllTabs' },
+              { id: 'calendar', icon: 'calendar', label: 'CALENDAR', requiresPermission: 'canAccessAllTabs' },
+              { id: 'building', icon: 'home', label: 'BUILDING', requiresPermission: 'canAccessAllTabs' },
               { id: 'vendors', icon: 'users', label: 'VENDORS', requiresPermission: 'canEdit' },
-              { id: 'inventory', icon: 'package', label: 'INVENTORY', requiresPermission: 'canView' },
-              { id: 'scheduled', icon: 'clock', label: 'SCHEDULED', requiresPermission: 'canView' },
-              { id: 'warranties', icon: 'shield', label: 'WARRANTIES', requiresPermission: 'canView' },
+              { id: 'inventory', icon: 'package', label: 'INVENTORY', requiresPermission: 'canAccessAllTabs' },
+              { id: 'scheduled', icon: 'clock', label: 'SCHEDULED', requiresPermission: 'canAccessAllTabs' },
+              { id: 'warranties', icon: 'shield', label: 'WARRANTIES', requiresPermission: 'canAccessAllTabs' },
               { id: 'requests', icon: 'alert', label: 'REQUESTS', requiresPermission: 'canEdit' },
-              { id: 'reports', icon: 'chart', label: 'REPORTS', requiresPermission: 'canView' },
-              { id: 'settings', icon: 'settings', label: 'SETTINGS', requiresPermission: 'canManageBackups' },
+              { id: 'reports', icon: 'chart', label: 'REPORTS', requiresPermission: 'canAccessAllTabs' },
+              { id: 'settings', icon: 'settings', label: 'SETTINGS', requiresPermission: 'canAccessSettings' },
             ].filter(tab => !tab.requiresPermission || permissions[tab.requiresPermission]).map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
                 <Icon name={tab.icon} size={18} />
