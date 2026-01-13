@@ -1332,6 +1332,7 @@ const App = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState(null); // Sprint 5: User email
   const [userRole, setUserRole] = useState('viewer'); // Sprint 5: User role (default to viewer)
+  const [roleLoading, setRoleLoading] = useState(true); // Sprint 5: Track if role is being detected
   const [spreadsheetId, setSpreadsheetId] = useState(null);
   const [folderId, setFolderId] = useState(null);
   const [folderStructure, setFolderStructure] = useState(null); // Stores subfolder IDs
@@ -1445,6 +1446,7 @@ const App = () => {
       if (!token || !token.access_token) {
         console.log('⚠️ No access token available');
         setUserRole('viewer');
+        setRoleLoading(false);
         return 'viewer';
       }
       
@@ -1455,6 +1457,7 @@ const App = () => {
       if (!response.ok) {
         console.error('❌ Failed to get user info');
         setUserRole('viewer');
+        setRoleLoading(false);
         return 'viewer';
       }
       
@@ -1488,10 +1491,12 @@ const App = () => {
       setUserRole(role);
       console.log('✅ User authenticated:', email, '| Role:', ROLES[role].name);
       
+      setRoleLoading(false); // Role detection complete
       return role;
     } catch (err) {
       console.error('❌ Error in detectUserRole:', err);
       setUserRole('viewer');
+      setRoleLoading(false); // Role detection complete (with error)
       return 'viewer';
     }
   };
@@ -3097,7 +3102,7 @@ const App = () => {
       urgency: requestForm.urgency,
       status: 'Pending',
       assignedTo: '',
-      notes: requestForm.notes.trim(),
+      notes: (requestForm.notes || '').trim(), // Fixed: null-safe
       resolvedDate: ''
     };
 
@@ -3428,25 +3433,36 @@ const App = () => {
           </div>
           
           <div ref={tabScrollRef} className="flex gap-2 mt-4 border-t-2 border-slate-500 pt-4 overflow-x-auto horizontal-scroll">
-            {[
-              { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD', requiresPermission: null },
-              { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT', requiresPermission: 'canAccessAllTabs' },
-              { id: 'repairs', icon: 'calendar', label: 'REPAIRS', requiresPermission: 'canAccessAllTabs' },
-              { id: 'calendar', icon: 'calendar', label: 'CALENDAR', requiresPermission: 'canAccessAllTabs' },
-              { id: 'building', icon: 'home', label: 'BUILDING', requiresPermission: 'canAccessAllTabs' },
-              { id: 'vendors', icon: 'users', label: 'VENDORS', requiresPermission: 'canEdit' },
-              { id: 'inventory', icon: 'package', label: 'INVENTORY', requiresPermission: 'canAccessAllTabs' },
-              { id: 'scheduled', icon: 'clock', label: 'SCHEDULED', requiresPermission: 'canAccessAllTabs' },
-              { id: 'warranties', icon: 'shield', label: 'WARRANTIES', requiresPermission: 'canAccessAllTabs' },
-              { id: 'requests', icon: 'alert', label: 'REQUESTS', requiresPermission: 'canEdit' },
-              { id: 'reports', icon: 'chart', label: 'REPORTS', requiresPermission: 'canAccessAllTabs' },
-              { id: 'settings', icon: 'settings', label: 'SETTINGS', requiresPermission: 'canAccessSettings' },
-            ].filter(tab => !tab.requiresPermission || permissions[tab.requiresPermission]).map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
-                <Icon name={tab.icon} size={18} />
-                {tab.label}
-              </button>
-            ))}
+            {roleLoading ? (
+              // Show loading skeleton while detecting role
+              <div className="flex gap-2 animate-pulse">
+                <div className="h-10 w-32 bg-zinc-700 border-2 border-zinc-600"></div>
+                <div className="h-10 w-32 bg-zinc-700 border-2 border-zinc-600"></div>
+                <div className="h-10 w-32 bg-zinc-700 border-2 border-zinc-600"></div>
+              </div>
+            ) : (
+              // Show actual tabs after role is loaded
+              [
+                { id: 'dashboard', icon: 'dashboard', label: 'DASHBOARD', requiresPermission: null },
+                { id: 'equipment', icon: 'wrench', label: 'EQUIPMENT', requiresPermission: 'canAccessAllTabs' },
+                { id: 'repairs', icon: 'calendar', label: 'REPAIRS', requiresPermission: 'canAccessAllTabs' },
+                { id: 'calendar', icon: 'calendar', label: 'CALENDAR', requiresPermission: 'canAccessAllTabs' },
+                { id: 'building', icon: 'home', label: 'BUILDING', requiresPermission: 'canAccessAllTabs' },
+                { id: 'vendors', icon: 'users', label: 'VENDORS', requiresPermission: 'canEdit' },
+                { id: 'inventory', icon: 'package', label: 'INVENTORY', requiresPermission: 'canAccessAllTabs' },
+                { id: 'scheduled', icon: 'clock', label: 'SCHEDULED', requiresPermission: 'canAccessAllTabs' },
+                { id: 'warranties', icon: 'shield', label: 'WARRANTIES', requiresPermission: 'canAccessAllTabs' },
+                { id: 'requests', icon: 'alert', label: 'REQUESTS', requiresPermission: 'canEdit' },
+                { id: 'reports', icon: 'chart', label: 'REPORTS', requiresPermission: 'canAccessAllTabs' },
+                { id: 'settings', icon: 'settings', label: 'SETTINGS', requiresPermission: 'canAccessSettings' },
+              ].filter(tab => !tab.requiresPermission || permissions[tab.requiresPermission]).map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 font-black border-2 flex items-center gap-2 whitespace-nowrap text-sm ${activeTab === tab.id ? 'bg-teal-600 text-white border-teal-700' : 'bg-zinc-800 text-teal-400 border-zinc-700 hover:bg-zinc-700'}`}>
+                  <Icon name={tab.icon} size={18} />
+                  {tab.label}
+                </button>
+              ))
+            )}
+          </div>
           </div>
         </div>
       </header>
