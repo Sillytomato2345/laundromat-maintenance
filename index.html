@@ -1790,7 +1790,7 @@ const App = () => {
       console.log('📊 loadAllData: Calling batchGet...');
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:L', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:M', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       console.log('📊 loadAllData: batchGet response received');
@@ -1849,7 +1849,8 @@ const App = () => {
         purchasePrice: r[8] || '',
         status: r[9] || 'In Service', // Sprint 5: Default to 'In Service'
         outOfOrderReason: r[10] || '', // Sprint 5
-        machineNumber: r[11] || '' // Machine number field
+        machineNumber: r[11] || '', // Machine number field
+        bulkheadId: r[12] || '' // Bulkhead assignment (column M)
       })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
@@ -4415,30 +4416,42 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             value={machine.bulkheadId || ''}
                             onChange={async (e) => {
                               try {
+                                // First, get all machines from the sheet to find the correct row
+                                const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                                  spreadsheetId: spreadsheetId,
+                                  range: 'Machines!A2:M'
+                                });
+                                
+                                const rows = response.result.values || [];
+                                const rowIndex = rows.findIndex(row => row[0] === machine.id);
+                                
+                                if (rowIndex === -1) {
+                                  throw new Error('Machine not found in sheet');
+                                }
+                                
+                                const actualRow = rowIndex + 2; // +2 because sheet starts at row 1 and header is row 1
+                                const currentRow = rows[rowIndex];
+                                
+                                // Update the bulkheadId column (column M = index 12)
+                                const updatedRow = [...currentRow];
+                                while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
+                                updatedRow[12] = e.target.value; // Column M
+                                
                                 await window.gapi.client.sheets.spreadsheets.values.update({
                                   spreadsheetId: spreadsheetId,
-                                  range: `Equipment!A${machines.indexOf(machine) + 2}:Z${machines.indexOf(machine) + 2}`,
+                                  range: `Machines!A${actualRow}:M${actualRow}`,
                                   valueInputOption: 'RAW',
                                   resource: {
-                                    values: [[
-                                      machine.id,
-                                      machine.name,
-                                      machine.type,
-                                      machine.model,
-                                      machine.serial,
-                                      machine.locationId,
-                                      machine.purchaseDate,
-                                      machine.maintenanceCost,
-                                      machine.archived || false,
-                                      e.target.value // bulkheadId
-                                    ]]
+                                    values: [updatedRow]
                                   }
                                 });
+                                
                                 machine.bulkheadId = e.target.value;
                                 alert(`✅ ${machine.name} moved to ${bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned'}`);
                                 // Force re-render
                                 setTeamConfig({...teamConfig});
                               } catch (err) {
+                                console.error('Update error:', err);
                                 alert('Failed to update machine: ' + err.message);
                               }
                             }}
@@ -4465,7 +4478,6 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
               <p className="text-xs text-zinc-400 mb-3">These machines are not assigned to any bulkhead and won't appear in Live View.</p>
               <div className="space-y-1">
                 {machines.filter(m => !m.bulkheadId && !m.archived).map(machine => {
-                  const machineIndex = machines.findIndex(m => m.id === machine.id);
                   return (
                     <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2 flex items-center justify-between text-sm">
                       <span className="text-zinc-200">{machine.name} - {machine.model}</span>
@@ -4474,26 +4486,39 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                         onChange={async (e) => {
                           if (!e.target.value) return;
                           try {
-                            // Load current machine data
-                            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                            // Get all machines from sheet to find correct row
+                            const allMachinesResponse = await window.gapi.client.sheets.spreadsheets.values.get({
                               spreadsheetId: spreadsheetId,
-                              range: `Equipment!A${machineIndex + 2}:Z${machineIndex + 2}`
+                              range: 'Machines!A2:M'
                             });
                             
-                            const row = response.result.values[0];
-                            row[9] = e.target.value; // bulkheadId is column J (index 9)
+                            const rows = allMachinesResponse.result.values || [];
+                            const rowIndex = rows.findIndex(row => row[0] === machine.id);
+                            
+                            if (rowIndex === -1) {
+                              throw new Error('Machine not found in sheet');
+                            }
+                            
+                            const actualRow = rowIndex + 2;
+                            const currentRow = rows[rowIndex];
+                            
+                            // Update the bulkheadId column (column M = index 12)
+                            const updatedRow = [...currentRow];
+                            while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
+                            updatedRow[12] = e.target.value; // Column M
                             
                             await window.gapi.client.sheets.spreadsheets.values.update({
                               spreadsheetId: spreadsheetId,
-                              range: `Equipment!A${machineIndex + 2}:Z${machineIndex + 2}`,
+                              range: `Machines!A${actualRow}:M${actualRow}`,
                               valueInputOption: 'RAW',
-                              resource: { values: [row] }
+                              resource: { values: [updatedRow] }
                             });
                             
                             machine.bulkheadId = e.target.value;
                             alert(`✅ ${machine.name} assigned to ${bulkheads.find(b => b.id === e.target.value)?.name}`);
                             setTeamConfig({...teamConfig});
                           } catch (err) {
+                            console.error('Assign error:', err);
                             alert('Failed to assign machine: ' + err.message);
                             console.error(err);
                           }
