@@ -4447,7 +4447,8 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                                 });
                                 
                                 machine.bulkheadId = e.target.value;
-                                alert(`✅ ${machine.name} moved to ${bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned'}`);
+                                const bulkheadName = teamConfig.bulkheads?.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                                alert(`✅ ${machine.name} moved to ${bulkheadName}`);
                                 // Force re-render
                                 setTeamConfig({...teamConfig});
                               } catch (err) {
@@ -4515,7 +4516,8 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             });
                             
                             machine.bulkheadId = e.target.value;
-                            alert(`✅ ${machine.name} assigned to ${bulkheads.find(b => b.id === e.target.value)?.name}`);
+                            const bulkheadName = teamConfig.bulkheads?.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                            alert(`✅ ${machine.name} assigned to ${bulkheadName}`);
                             setTeamConfig({...teamConfig});
                           } catch (err) {
                             console.error('Assign error:', err);
