@@ -162,6 +162,13 @@ const DEFAULT_REQUEST_SETTINGS = {
   employees: ['Employee 1', 'Employee 2', 'Employee 3'] // Attendant employee names
 };
 
+// Bulkhead configuration for Live View display
+const DEFAULT_BULKHEADS = [
+  { id: 'bulkhead_1', name: 'Front Section', order: 1 },
+  { id: 'bulkhead_2', name: 'Middle Section', order: 2 },
+  { id: 'bulkhead_3', name: 'Back Section', order: 3 }
+];
+
 // ========================================================
 
 // Icons
@@ -638,6 +645,8 @@ const createInitialTeamConfig = (ownerEmail) => {
       dryerLocations: DEFAULT_REQUEST_SETTINGS.dryerLocations,
       notificationEmail: DEFAULT_REQUEST_SETTINGS.notificationEmail
     },
+    bulkheads: DEFAULT_BULKHEADS,
+    managerCanAccessSettings: true, // Owner can toggle manager's access to settings
     pendingRemovals: [],
     removalLog: [],
     lastUpdated: new Date().toISOString(),
@@ -1390,6 +1399,7 @@ const App = () => {
   const [currentUser, setCurrentUser] = useState(null); // Sprint 5: User email
   const [userRole, setUserRole] = useState('viewer'); // Sprint 5: User role (default to viewer)
   const [roleLoading, setRoleLoading] = useState(true); // Sprint 5: Track if role is being detected
+  const [teamConfig, setTeamConfig] = useState(null); // Team configuration including manager settings access
   const [spreadsheetId, setSpreadsheetId] = useState(null);
   const [folderId, setFolderId] = useState(null);
   const [folderStructure, setFolderStructure] = useState(null); // Stores subfolder IDs
@@ -1525,6 +1535,7 @@ const App = () => {
       // Try to load role from shared config first
       console.log('🔍 Loading role from team config...');
       const teamConfig = await loadSharedConfig();
+      setTeamConfig(teamConfig); // Save team config to state
       
       let role = 'viewer'; // Default
       
@@ -1560,6 +1571,11 @@ const App = () => {
 
   // Sprint 5: Get permissions for current user
   const permissions = ROLES[userRole] || ROLES.viewer;
+  
+  // Override manager settings access based on owner's configuration
+  if (userRole === 'manager' && teamConfig) {
+    permissions.canAccessSettings = teamConfig.managerCanAccessSettings !== false; // Default true
+  }
 
   // Enforce dashboard-only for attendants
   React.useEffect(() => {
@@ -4096,6 +4112,419 @@ const RequestSettingsSection = ({ currentUser, userRole }) => {
 };
 
 // ============================================================================
+// BULKHEAD CONFIGURATION COMPONENT - For organizing equipment in Live View
+// ============================================================================
+
+const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId }) => {
+  const [teamConfig, setTeamConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [newBulkheadName, setNewBulkheadName] = useState('');
+  const [editingBulkhead, setEditingBulkhead] = useState(null);
+  const [selectedBulkhead, setSelectedBulkhead] = useState(null); // For viewing machines in a bulkhead
+  const [assigningMachine, setAssigningMachine] = useState(null); // Machine being reassigned
+  
+  useEffect(() => {
+    loadConfig();
+  }, []);
+  
+  const loadConfig = async () => {
+    setLoading(true);
+    let config = await loadSharedConfig();
+    
+    if (!config) {
+      config = createInitialTeamConfig(currentUser);
+      await saveSharedConfig(config);
+    }
+    
+    // Initialize bulkheads if they don't exist
+    if (!config.bulkheads) {
+      config.bulkheads = DEFAULT_BULKHEADS;
+      await saveSharedConfig(config);
+    }
+    
+    setTeamConfig(config);
+    setLoading(false);
+  };
+  
+  const addBulkhead = async () => {
+    if (!newBulkheadName.trim()) {
+      alert('Please enter a bulkhead name');
+      return;
+    }
+    
+    if (teamConfig.bulkheads.some(b => b.name.toLowerCase() === newBulkheadName.trim().toLowerCase())) {
+      alert('A bulkhead with this name already exists');
+      return;
+    }
+    
+    const newBulkhead = {
+      id: `bulkhead_${Date.now()}`,
+      name: newBulkheadName.trim(),
+      order: teamConfig.bulkheads.length + 1
+    };
+    
+    teamConfig.bulkheads.push(newBulkhead);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setNewBulkheadName('');
+      alert('✅ Bulkhead added');
+    }
+  };
+  
+  const updateBulkheadName = async (bulkhead, newName) => {
+    if (!newName.trim()) {
+      alert('Bulkhead name cannot be empty');
+      return;
+    }
+    
+    if (teamConfig.bulkheads.some(b => b.id !== bulkhead.id && b.name.toLowerCase() === newName.trim().toLowerCase())) {
+      alert('A bulkhead with this name already exists');
+      return;
+    }
+    
+    const index = teamConfig.bulkheads.findIndex(b => b.id === bulkhead.id);
+    teamConfig.bulkheads[index].name = newName.trim();
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      setEditingBulkhead(null);
+      alert('✅ Bulkhead updated');
+    }
+  };
+  
+  const removeBulkhead = async (bulkhead) => {
+    const confirmed = confirm(`Remove bulkhead "${bulkhead.name}"? This will not delete any equipment, only the grouping.`);
+    if (!confirmed) return;
+    
+    teamConfig.bulkheads = teamConfig.bulkheads.filter(b => b.id !== bulkhead.id);
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+      alert('✅ Bulkhead removed');
+    }
+  };
+  
+  const moveBulkhead = async (bulkhead, direction) => {
+    const currentIndex = teamConfig.bulkheads.findIndex(b => b.id === bulkhead.id);
+    if (direction === 'up' && currentIndex === 0) return;
+    if (direction === 'down' && currentIndex === teamConfig.bulkheads.length - 1) return;
+    
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    const bulkheads = [...teamConfig.bulkheads];
+    
+    // Swap positions
+    [bulkheads[currentIndex], bulkheads[newIndex]] = [bulkheads[newIndex], bulkheads[currentIndex]];
+    
+    // Update order numbers
+    bulkheads.forEach((b, idx) => b.order = idx + 1);
+    
+    teamConfig.bulkheads = bulkheads;
+    teamConfig.updatedBy = currentUser;
+    
+    const saved = await saveSharedConfig(teamConfig);
+    if (saved) {
+      setTeamConfig({...teamConfig});
+    }
+  };
+  
+  if (loading) {
+    return (
+      <div className="bg-zinc-800 border-2 border-teal-600 p-6">
+        <p className="text-white">Loading configuration...</p>
+      </div>
+    );
+  }
+  
+  if (!teamConfig) {
+    return (
+      <div className="bg-zinc-800 border-2 border-red-600 p-6">
+        <p className="text-red-400">Failed to load configuration</p>
+      </div>
+    );
+  }
+  
+  const bulkheads = teamConfig.bulkheads || [];
+  
+  return (
+    <div className="bg-zinc-800 border-2 border-teal-600 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-black text-teal-400 flex items-center gap-2">
+          <Icon name="layers" size={24} />
+          BULKHEAD CONFIGURATION
+        </h3>
+      </div>
+      
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-4">
+        <p className="text-sm text-zinc-400 mb-2">
+          <strong className="text-teal-400">What are bulkheads?</strong> Bulkheads are groups of equipment used to organize and display machines in the Live View. 
+          Define your bulkheads here in the order they appear in your facility (e.g., "Front Wall", "Center Row", "Back Section").
+        </p>
+        <p className="text-xs text-zinc-500 italic">
+          Note: After creating bulkheads, you can assign equipment to them when editing each machine.
+        </p>
+      </div>
+      
+      {/* Add New Bulkhead */}
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mb-4">
+        <h4 className="text-md font-black text-teal-400 mb-3">ADD NEW BULKHEAD</h4>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newBulkheadName}
+            onChange={(e) => setNewBulkheadName(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && addBulkhead()}
+            placeholder="Enter bulkhead name (e.g., Front Wall, Row A)"
+            className="flex-1 bg-zinc-800 border-2 border-zinc-700 text-white px-3 py-2 font-bold"
+          />
+          <button
+            onClick={addBulkhead}
+            className="bg-teal-600 hover:bg-teal-500 text-white px-6 py-2 font-black border-2 border-teal-700"
+          >
+            ADD
+          </button>
+        </div>
+      </div>
+      
+      {/* Bulkhead List */}
+      <div className="bg-zinc-900 border-2 border-zinc-700 p-4">
+        <h4 className="text-md font-black text-teal-400 mb-3">
+          CURRENT BULKHEADS ({bulkheads.length})
+        </h4>
+        
+        {bulkheads.length === 0 ? (
+          <p className="text-zinc-500 italic text-sm">No bulkheads configured. Add one above to get started.</p>
+        ) : (
+          <div className="space-y-2">
+            {bulkheads.map((bulkhead, index) => (
+              <div key={bulkhead.id} className="bg-zinc-800 border border-zinc-700 p-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="text-zinc-500 font-bold text-sm min-w-[30px]">
+                    #{bulkhead.order}
+                  </div>
+                  {editingBulkhead === bulkhead.id ? (
+                    <input
+                      type="text"
+                      defaultValue={bulkhead.name}
+                      onBlur={(e) => updateBulkheadName(bulkhead, e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          updateBulkheadName(bulkhead, e.target.value);
+                        } else if (e.key === 'Escape') {
+                          setEditingBulkhead(null);
+                        }
+                      }}
+                      autoFocus
+                      className="flex-1 bg-zinc-700 border border-zinc-600 text-white px-2 py-1 font-bold"
+                    />
+                  ) : (
+                    <div 
+                      className="flex-1 text-white font-bold cursor-pointer hover:text-teal-400"
+                      onClick={() => setEditingBulkhead(bulkhead.id)}
+                      title="Click to edit"
+                    >
+                      {bulkhead.name}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {/* Move Up */}
+                  <button
+                    onClick={() => moveBulkhead(bulkhead, 'up')}
+                    disabled={index === 0}
+                    className={`px-2 py-1 text-sm font-bold border-2 ${
+                      index === 0 
+                        ? 'bg-zinc-700 text-zinc-600 border-zinc-700 cursor-not-allowed' 
+                        : 'bg-zinc-700 text-white border-zinc-600 hover:bg-zinc-600'
+                    }`}
+                    title="Move up"
+                  >
+                    ↑
+                  </button>
+                  {/* Move Down */}
+                  <button
+                    onClick={() => moveBulkhead(bulkhead, 'down')}
+                    disabled={index === bulkheads.length - 1}
+                    className={`px-2 py-1 text-sm font-bold border-2 ${
+                      index === bulkheads.length - 1
+                        ? 'bg-zinc-700 text-zinc-600 border-zinc-700 cursor-not-allowed' 
+                        : 'bg-zinc-700 text-white border-zinc-600 hover:bg-zinc-600'
+                    }`}
+                    title="Move down"
+                  >
+                    ↓
+                  </button>
+                  {/* Edit */}
+                  <button
+                    onClick={() => setEditingBulkhead(bulkhead.id)}
+                    className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-1 text-sm font-black border-2 border-teal-700"
+                    title="Edit name"
+                  >
+                    <Icon name="edit" size={14} />
+                  </button>
+                  {/* Delete */}
+                  <button
+                    onClick={() => removeBulkhead(bulkhead)}
+                    className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-sm font-black border-2 border-red-700"
+                    title="Remove"
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {/* Machine Assignment Section */}
+      {bulkheads.length > 0 && machines && machines.length > 0 && (
+        <div className="bg-zinc-900 border-2 border-zinc-700 p-4 mt-4">
+          <h4 className="text-md font-black text-teal-400 mb-3">📍 ASSIGN MACHINES TO BULKHEADS</h4>
+          <p className="text-xs text-zinc-400 mb-4">
+            Organize your equipment by assigning machines to bulkheads. Unassigned machines won't appear in Live View.
+          </p>
+          
+          {bulkheads.map(bulkhead => {
+            const bulkheadMachines = machines.filter(m => m.bulkheadId === bulkhead.id && !m.archived);
+            const unassignedMachines = machines.filter(m => !m.bulkheadId && !m.archived);
+            
+            return (
+              <div key={bulkhead.id} className="mb-4 bg-zinc-800 border border-zinc-700 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h5 className="font-bold text-white">{bulkhead.name}</h5>
+                  <span className="text-xs text-zinc-500">{bulkheadMachines.length} machines</span>
+                </div>
+                
+                {bulkheadMachines.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic py-2">No machines assigned</p>
+                ) : (
+                  <div className="space-y-1">
+                    {bulkheadMachines.map(machine => (
+                      <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2 flex items-center justify-between text-sm">
+                        <span className="text-zinc-200">{machine.name} - {machine.model}</span>
+                        <div className="flex gap-2">
+                          <select
+                            value={machine.bulkheadId || ''}
+                            onChange={async (e) => {
+                              try {
+                                await window.gapi.client.sheets.spreadsheets.values.update({
+                                  spreadsheetId: spreadsheetId,
+                                  range: `Equipment!A${machines.indexOf(machine) + 2}:Z${machines.indexOf(machine) + 2}`,
+                                  valueInputOption: 'RAW',
+                                  resource: {
+                                    values: [[
+                                      machine.id,
+                                      machine.name,
+                                      machine.type,
+                                      machine.model,
+                                      machine.serial,
+                                      machine.locationId,
+                                      machine.purchaseDate,
+                                      machine.maintenanceCost,
+                                      machine.archived || false,
+                                      e.target.value // bulkheadId
+                                    ]]
+                                  }
+                                });
+                                machine.bulkheadId = e.target.value;
+                                alert(`✅ ${machine.name} moved to ${bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned'}`);
+                                // Force re-render
+                                setTeamConfig({...teamConfig});
+                              } catch (err) {
+                                alert('Failed to update machine: ' + err.message);
+                              }
+                            }}
+                            className="bg-zinc-600 text-white text-xs px-2 py-1 border border-zinc-500"
+                          >
+                            {bulkheads.map(b => (
+                              <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                            <option value="">Unassigned</option>
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          
+          {/* Unassigned Machines */}
+          {machines.filter(m => !m.bulkheadId && !m.archived).length > 0 && (
+            <div className="bg-zinc-800 border-2 border-yellow-600 p-3">
+              <h5 className="font-bold text-yellow-400 mb-2">⚠️ Unassigned Machines ({machines.filter(m => !m.bulkheadId && !m.archived).length})</h5>
+              <p className="text-xs text-zinc-400 mb-3">These machines are not assigned to any bulkhead and won't appear in Live View.</p>
+              <div className="space-y-1">
+                {machines.filter(m => !m.bulkheadId && !m.archived).map(machine => {
+                  const machineIndex = machines.findIndex(m => m.id === machine.id);
+                  return (
+                    <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2 flex items-center justify-between text-sm">
+                      <span className="text-zinc-200">{machine.name} - {machine.model}</span>
+                      <select
+                        value=""
+                        onChange={async (e) => {
+                          if (!e.target.value) return;
+                          try {
+                            // Load current machine data
+                            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                              spreadsheetId: spreadsheetId,
+                              range: `Equipment!A${machineIndex + 2}:Z${machineIndex + 2}`
+                            });
+                            
+                            const row = response.result.values[0];
+                            row[9] = e.target.value; // bulkheadId is column J (index 9)
+                            
+                            await window.gapi.client.sheets.spreadsheets.values.update({
+                              spreadsheetId: spreadsheetId,
+                              range: `Equipment!A${machineIndex + 2}:Z${machineIndex + 2}`,
+                              valueInputOption: 'RAW',
+                              resource: { values: [row] }
+                            });
+                            
+                            machine.bulkheadId = e.target.value;
+                            alert(`✅ ${machine.name} assigned to ${bulkheads.find(b => b.id === e.target.value)?.name}`);
+                            setTeamConfig({...teamConfig});
+                          } catch (err) {
+                            alert('Failed to assign machine: ' + err.message);
+                            console.error(err);
+                          }
+                        }}
+                        className="bg-yellow-600 text-white text-xs px-2 py-1 border border-yellow-700 font-bold"
+                      >
+                        <option value="">Assign to...</option>
+                        {bulkheads.map(b => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      
+      <div className="bg-yellow-900 border-2 border-yellow-600 p-4 mt-4">
+        <p className="text-sm text-yellow-200">
+          <strong>💡 Tip:</strong> Use the ↑ ↓ buttons to arrange bulkheads in the order they appear in your facility. 
+          This order will be used when displaying equipment in the Live View feature.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // TEAM MANAGEMENT COMPONENT
 // ============================================================================
 
@@ -4286,6 +4715,47 @@ const TeamManagementSection = ({ currentUser, userRole }) => {
   return (
     <div className="bg-zinc-900 border-2 border-zinc-700 p-6 mt-6">
       <h3 className="text-xl font-black text-teal-400 mb-4">👥 TEAM MANAGEMENT</h3>
+      
+      {/* Manager Settings Access Control */}
+      <div className="bg-zinc-800 border-2 border-yellow-600 p-4 mb-6">
+        <h4 className="text-lg font-bold text-yellow-400 mb-3">⚙️ MANAGER PERMISSIONS</h4>
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-white font-bold mb-1">Allow Managers to Access Settings</p>
+            <p className="text-xs text-zinc-400">
+              When enabled, managers can access the Settings tab to view backups, exports, and request settings. 
+              When disabled, only owners can access settings.
+            </p>
+          </div>
+          <div className="ml-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <span className={`text-sm font-bold ${teamConfig.managerCanAccessSettings !== false ? 'text-green-400' : 'text-red-400'}`}>
+                {teamConfig.managerCanAccessSettings !== false ? 'ENABLED' : 'DISABLED'}
+              </span>
+              <button
+                onClick={async () => {
+                  teamConfig.managerCanAccessSettings = !teamConfig.managerCanAccessSettings;
+                  teamConfig.updatedBy = currentUser;
+                  const saved = await saveSharedConfig(teamConfig);
+                  if (saved) {
+                    setTeamConfig({...teamConfig});
+                    alert(`✅ Manager settings access ${teamConfig.managerCanAccessSettings ? 'enabled' : 'disabled'}`);
+                  }
+                }}
+                className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+                  teamConfig.managerCanAccessSettings !== false ? 'bg-green-600' : 'bg-red-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                    teamConfig.managerCanAccessSettings !== false ? 'translate-x-7' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
+        </div>
+      </div>
       
       {pendingCount > 0 && (
         <div className="bg-yellow-900/30 border-2 border-yellow-600 p-4 mb-6">
@@ -7896,6 +8366,7 @@ const SettingsTab = ({ currentUser, userRole, backups, lastBackupTime, backupSta
       
       {/* Team Management & Request Settings */}
       <RequestSettingsSection currentUser={currentUser} userRole={userRole} />
+      <BulkheadConfigSection currentUser={currentUser} userRole={userRole} machines={machines} spreadsheetId={spreadsheetId} />
       <TeamManagementSection currentUser={currentUser} userRole={userRole} />
       
       {/* Backup Section */}
