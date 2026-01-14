@@ -5398,6 +5398,8 @@ const EquipmentTab = ({ machines, logs, year, showArchived, setShowArchived, onA
   console.log('🔧 EquipmentTab: Rendering with', machines?.length || 0, 'machines');
   console.log('🔧 EquipmentTab: showArchived:', showArchived);
   console.log('🔧 EquipmentTab: year:', year);
+  console.log('🔍 CRITICAL DEBUG: onMarkInService type:', typeof onMarkInService);
+  console.log('🔍 CRITICAL DEBUG: onMarkInService value:', onMarkInService);
   
   const [search, setSearch] = useState('');
   const [expandedTypes, setExpandedTypes] = useState({});
