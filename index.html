@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-01-30 23:55 UTC - Bulkhead Assignment Debug v2 -->
+  <!-- VERSION: 2026-01-31 00:05 UTC - Bulkhead Assignment FIXED -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-01-30 23:55 UTC - Bulkhead Assignment Debug v2');
-console.log('📋 If you see this message, the latest version is loaded!');
+console.log('🚀 Maintenance Pro VERSION: 2026-01-31 00:05 UTC - Bulkhead Assignment FIXED');
+console.log('📋 This version fixes the "undefined" issue by capturing dropdown value immediately!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -4420,8 +4420,11 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                           <select
                             value={machine.bulkheadId || ''}
                             onChange={async (e) => {
+                              // Capture the value immediately before React resets it
+                              const selectedValue = e.target.value;
+                              
                               try {
-                                console.log('🔍 DEBUG: Selected value:', e.target.value);
+                                console.log('🔍 DEBUG: Selected value:', selectedValue);
                                 console.log('🔍 DEBUG: Available bulkheads:', bulkheads);
                                 console.log('🔍 DEBUG: TeamConfig bulkheads:', teamConfig?.bulkheads);
                                 
@@ -4444,7 +4447,7 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                                 // Update the bulkheadId column (column M = index 12)
                                 const updatedRow = [...currentRow];
                                 while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
-                                updatedRow[12] = e.target.value; // Column M
+                                updatedRow[12] = selectedValue; // Column M
                                 
                                 await window.gapi.client.sheets.spreadsheets.values.update({
                                   spreadsheetId: spreadsheetId,
@@ -4455,15 +4458,15 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                                   }
                                 });
                                 
-                                machine.bulkheadId = e.target.value;
+                                machine.bulkheadId = selectedValue;
                                 
                                 // Debug the exact lookup process
                                 console.log('🔍 ASSIGNED LOOKUP DEBUG: About to find bulkhead');
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: e.target.value =', e.target.value);
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: typeof e.target.value =', typeof e.target.value);
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: selectedValue =', selectedValue);
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: typeof selectedValue =', typeof selectedValue);
                                 const foundBulkhead = bulkheads.find(b => {
-                                  console.log('🔍 ASSIGNED LOOKUP DEBUG: Comparing', b.id, '===', e.target.value, '?', b.id === e.target.value);
-                                  return b.id === e.target.value;
+                                  console.log('🔍 ASSIGNED LOOKUP DEBUG: Comparing', b.id, '===', selectedValue, '?', b.id === selectedValue);
+                                  return b.id === selectedValue;
                                 });
                                 console.log('🔍 ASSIGNED LOOKUP DEBUG: Found bulkhead =', foundBulkhead);
                                 const bulkheadName = foundBulkhead?.name || 'Unassigned';
@@ -4504,13 +4507,15 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                     <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2 flex items-center justify-between text-sm">
                       <span className="text-zinc-200">{machine.name} - {machine.model}</span>
                       <select
-                        value=""
                         onChange={async (e) => {
                           if (!e.target.value) return;
+                          
+                          // Capture the value immediately before React resets it
+                          const selectedValue = e.target.value;
+                          console.log('🔍 UNASSIGNED DEBUG: Selected value:', selectedValue);
+                          console.log('🔍 UNASSIGNED DEBUG: Available bulkheads:', bulkheads);
+                          
                           try {
-                            console.log('🔍 UNASSIGNED DEBUG: Selected value:', e.target.value);
-                            console.log('🔍 UNASSIGNED DEBUG: Available bulkheads:', bulkheads);
-                            
                             // Get all machines from sheet to find correct row
                             const allMachinesResponse = await window.gapi.client.sheets.spreadsheets.values.get({
                               spreadsheetId: spreadsheetId,
@@ -4530,7 +4535,7 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             // Update the bulkheadId column (column M = index 12)
                             const updatedRow = [...currentRow];
                             while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
-                            updatedRow[12] = e.target.value; // Column M
+                            updatedRow[12] = selectedValue; // Column M
                             
                             await window.gapi.client.sheets.spreadsheets.values.update({
                               spreadsheetId: spreadsheetId,
@@ -4539,21 +4544,25 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                               resource: { values: [updatedRow] }
                             });
                             
-                            machine.bulkheadId = e.target.value;
+                            machine.bulkheadId = selectedValue;
                             
                             // Debug the exact lookup process
                             console.log('🔍 LOOKUP DEBUG: About to find bulkhead');
-                            console.log('🔍 LOOKUP DEBUG: e.target.value =', e.target.value);
-                            console.log('🔍 LOOKUP DEBUG: typeof e.target.value =', typeof e.target.value);
+                            console.log('🔍 LOOKUP DEBUG: selectedValue =', selectedValue);
+                            console.log('🔍 LOOKUP DEBUG: typeof selectedValue =', typeof selectedValue);
                             const foundBulkhead = bulkheads.find(b => {
-                              console.log('🔍 LOOKUP DEBUG: Comparing', b.id, '===', e.target.value, '?', b.id === e.target.value);
-                              return b.id === e.target.value;
+                              console.log('🔍 LOOKUP DEBUG: Comparing', b.id, '===', selectedValue, '?', b.id === selectedValue);
+                              return b.id === selectedValue;
                             });
                             console.log('🔍 LOOKUP DEBUG: Found bulkhead =', foundBulkhead);
                             const bulkheadName = foundBulkhead?.name || 'Unassigned';
                             console.log('🔍 LOOKUP DEBUG: Final bulkheadName =', bulkheadName);
                             
                             alert(`✅ ${machine.name} assigned to ${bulkheadName}`);
+                            
+                            // Reset the dropdown
+                            e.target.value = '';
+                            
                             setTeamConfig({...teamConfig});
                           } catch (err) {
                             console.error('Assign error:', err);
