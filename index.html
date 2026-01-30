@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-01-30 23:45 UTC - Bulkhead Assignment Fix -->
+  <!-- VERSION: 2026-01-30 23:55 UTC - Bulkhead Assignment Debug v2 -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,7 +32,7 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-01-30 23:45 UTC - Bulkhead Assignment Fix');
+console.log('🚀 Maintenance Pro VERSION: 2026-01-30 23:55 UTC - Bulkhead Assignment Debug v2');
 console.log('📋 If you see this message, the latest version is loaded!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
@@ -4456,7 +4456,19 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                                 });
                                 
                                 machine.bulkheadId = e.target.value;
-                                const bulkheadName = bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                                
+                                // Debug the exact lookup process
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: About to find bulkhead');
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: e.target.value =', e.target.value);
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: typeof e.target.value =', typeof e.target.value);
+                                const foundBulkhead = bulkheads.find(b => {
+                                  console.log('🔍 ASSIGNED LOOKUP DEBUG: Comparing', b.id, '===', e.target.value, '?', b.id === e.target.value);
+                                  return b.id === e.target.value;
+                                });
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: Found bulkhead =', foundBulkhead);
+                                const bulkheadName = foundBulkhead?.name || 'Unassigned';
+                                console.log('🔍 ASSIGNED LOOKUP DEBUG: Final bulkheadName =', bulkheadName);
+                                
                                 alert(`✅ ${machine.name} moved to ${bulkheadName}`);
                                 // Force re-render
                                 setTeamConfig({...teamConfig});
@@ -4528,7 +4540,19 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             });
                             
                             machine.bulkheadId = e.target.value;
-                            const bulkheadName = bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                            
+                            // Debug the exact lookup process
+                            console.log('🔍 LOOKUP DEBUG: About to find bulkhead');
+                            console.log('🔍 LOOKUP DEBUG: e.target.value =', e.target.value);
+                            console.log('🔍 LOOKUP DEBUG: typeof e.target.value =', typeof e.target.value);
+                            const foundBulkhead = bulkheads.find(b => {
+                              console.log('🔍 LOOKUP DEBUG: Comparing', b.id, '===', e.target.value, '?', b.id === e.target.value);
+                              return b.id === e.target.value;
+                            });
+                            console.log('🔍 LOOKUP DEBUG: Found bulkhead =', foundBulkhead);
+                            const bulkheadName = foundBulkhead?.name || 'Unassigned';
+                            console.log('🔍 LOOKUP DEBUG: Final bulkheadName =', bulkheadName);
+                            
                             alert(`✅ ${machine.name} assigned to ${bulkheadName}`);
                             setTeamConfig({...teamConfig});
                           } catch (err) {
