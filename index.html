@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
+  <!-- VERSION: 2026-01-30 23:45 UTC - Bulkhead Assignment Fix -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -29,6 +30,10 @@
   <div id="root"></div>
   <script type="text/babel">
 const { useState, useEffect, useRef } = React;
+
+// VERSION CHECK - Confirm new version is loaded
+console.log('🚀 Maintenance Pro VERSION: 2026-01-30 23:45 UTC - Bulkhead Assignment Fix');
+console.log('📋 If you see this message, the latest version is loaded!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -4416,6 +4421,10 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             value={machine.bulkheadId || ''}
                             onChange={async (e) => {
                               try {
+                                console.log('🔍 DEBUG: Selected value:', e.target.value);
+                                console.log('🔍 DEBUG: Available bulkheads:', bulkheads);
+                                console.log('🔍 DEBUG: TeamConfig bulkheads:', teamConfig?.bulkheads);
+                                
                                 // First, get all machines from the sheet to find the correct row
                                 const response = await window.gapi.client.sheets.spreadsheets.values.get({
                                   spreadsheetId: spreadsheetId,
@@ -4447,7 +4456,7 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                                 });
                                 
                                 machine.bulkheadId = e.target.value;
-                                const bulkheadName = teamConfig.bulkheads?.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                                const bulkheadName = bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned';
                                 alert(`✅ ${machine.name} moved to ${bulkheadName}`);
                                 // Force re-render
                                 setTeamConfig({...teamConfig});
@@ -4487,6 +4496,9 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                         onChange={async (e) => {
                           if (!e.target.value) return;
                           try {
+                            console.log('🔍 UNASSIGNED DEBUG: Selected value:', e.target.value);
+                            console.log('🔍 UNASSIGNED DEBUG: Available bulkheads:', bulkheads);
+                            
                             // Get all machines from sheet to find correct row
                             const allMachinesResponse = await window.gapi.client.sheets.spreadsheets.values.get({
                               spreadsheetId: spreadsheetId,
@@ -4516,7 +4528,7 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             });
                             
                             machine.bulkheadId = e.target.value;
-                            const bulkheadName = teamConfig.bulkheads?.find(b => b.id === e.target.value)?.name || 'Unassigned';
+                            const bulkheadName = bulkheads.find(b => b.id === e.target.value)?.name || 'Unassigned';
                             alert(`✅ ${machine.name} assigned to ${bulkheadName}`);
                             setTeamConfig({...teamConfig});
                           } catch (err) {
