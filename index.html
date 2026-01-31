@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-01-31 00:05 UTC - Bulkhead Assignment FIXED -->
+  <!-- VERSION: 2026-01-31 00:15 UTC - Live View Bulkhead Display -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-01-31 00:05 UTC - Bulkhead Assignment FIXED');
-console.log('📋 This version fixes the "undefined" issue by capturing dropdown value immediately!');
+console.log('🚀 Maintenance Pro VERSION: 2026-01-31 00:15 UTC - Live View Bulkhead Display');
+console.log('📋 Live View now displays machines grouped by bulkheads!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -5003,6 +5003,19 @@ const getMachineDisplayName = (machine) => {
 
 // Machine Status Grid Component - Visual status display grouped by bulkhead
 const MachineStatusGrid = ({ machines }) => {
+  const [teamConfig, setTeamConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  // Load team config to get bulkheads
+  useEffect(() => {
+    const loadConfig = async () => {
+      const config = await loadSharedConfig();
+      setTeamConfig(config);
+      setLoading(false);
+    };
+    loadConfig();
+  }, []);
+  
   // Helper function to extract number from machine
   const getMachineNumber = (machine) => {
     // Use machineNumber field if available
@@ -5013,52 +5026,57 @@ const MachineStatusGrid = ({ machines }) => {
     return match ? parseInt(match[1]) : 0;
   };
   
-  // Group machines by type and number ranges (bulkheads)
-  const washerGroups = [
-    { 
-      label: 'Washers 31-34', 
-      machines: machines
-        .filter(m => m.type === 'Washer')
-        .map(m => ({...m, number: getMachineNumber(m)}))
-        .filter(m => m.number >= 31 && m.number <= 34)
-        .sort((a, b) => a.number - b.number)
-    },
-    { 
-      label: 'Washers 41-48', 
-      machines: machines
-        .filter(m => m.type === 'Washer')
-        .map(m => ({...m, number: getMachineNumber(m)}))
-        .filter(m => m.number >= 41 && m.number <= 48)
-        .sort((a, b) => a.number - b.number)
-    },
-    { 
-      label: 'Washers 51-54', 
-      machines: machines
-        .filter(m => m.type === 'Washer')
-        .map(m => ({...m, number: getMachineNumber(m)}))
-        .filter(m => m.number >= 51 && m.number <= 54)
-        .sort((a, b) => a.number - b.number)
-    }
-  ];
+  const getMachineDisplayName = (machine) => {
+    return machine.name || `${machine.type} ${getMachineNumber(machine)}`;
+  };
   
-  const dryerGroups = [
-    { 
-      label: 'Dryers 1-7', 
-      machines: machines
-        .filter(m => m.type === 'Dryer')
-        .map(m => ({...m, number: getMachineNumber(m)}))
-        .filter(m => m.number >= 1 && m.number <= 7)
-        .sort((a, b) => a.number - b.number)
-    },
-    { 
-      label: 'Dryers 10-18', 
-      machines: machines
-        .filter(m => m.type === 'Dryer')
-        .map(m => ({...m, number: getMachineNumber(m)}))
-        .filter(m => m.number >= 10 && m.number <= 18)
-        .sort((a, b) => a.number - b.number)
-    }
-  ];
+  // If no bulkheads configured, show message
+  if (loading) {
+    return (
+      <div className="bg-zinc-800 border-2 border-teal-500 p-6">
+        <h3 className="text-2xl font-black text-teal-400 mb-6">🔧 MACHINE STATUS - LIVE VIEW</h3>
+        <p className="text-zinc-400">Loading configuration...</p>
+      </div>
+    );
+  }
+  
+  const bulkheads = teamConfig?.bulkheads || [];
+  
+  if (bulkheads.length === 0) {
+    return (
+      <div className="bg-zinc-800 border-2 border-teal-500 p-6">
+        <h3 className="text-2xl font-black text-teal-400 mb-6">🔧 MACHINE STATUS - LIVE VIEW</h3>
+        <div className="bg-yellow-900/30 border-2 border-yellow-600 p-4">
+          <p className="text-yellow-300 font-bold mb-2">⚠️ No Bulkheads Configured</p>
+          <p className="text-zinc-300 text-sm">
+            Please configure bulkheads and assign machines in the Settings tab to use Live View.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Sort bulkheads by order
+  const sortedBulkheads = [...bulkheads].sort((a, b) => a.order - b.order);
+  
+  // Group machines by bulkhead
+  const bulkheadGroups = sortedBulkheads.map(bulkhead => {
+    const bulkheadMachines = machines
+      .filter(m => m.bulkheadId === bulkhead.id && !m.archived)
+      .map(m => ({...m, number: getMachineNumber(m)}))
+      .sort((a, b) => {
+        // Sort by type first (Washer before Dryer), then by number
+        if (a.type !== b.type) {
+          return a.type === 'Washer' ? -1 : 1;
+        }
+        return a.number - b.number;
+      });
+    
+    return {
+      bulkhead,
+      machines: bulkheadMachines
+    };
+  });
   
   const MachineBox = ({ machine }) => {
     // Check machine.status field, not machine.outOfOrder
@@ -5093,42 +5111,53 @@ const MachineStatusGrid = ({ machines }) => {
         </div>
       </div>
       
-      {/* Washers */}
-      <div className="mb-8">
-        <h4 className="text-xl font-black text-teal-400 mb-4">WASHERS</h4>
-        <div className="space-y-4">
-          {washerGroups.map((group, idx) => (
-            group.machines.length > 0 && (
-              <div key={idx}>
-                <div className="text-sm text-zinc-400 font-bold mb-2">{group.label}</div>
-                <div className="flex gap-2 flex-wrap">
-                  {group.machines.map(machine => (
-                    <MachineBox key={machine.id} machine={machine} />
-                  ))}
-                </div>
+      {/* Display machines grouped by bulkhead */}
+      <div className="space-y-8">
+        {bulkheadGroups.map(group => (
+          group.machines.length > 0 && (
+            <div key={group.bulkhead.id} className="bg-zinc-900 border-2 border-zinc-700 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-xl font-black text-teal-400">
+                  {group.bulkhead.name}
+                </h4>
+                <span className="text-sm text-zinc-500">
+                  {group.machines.length} machine{group.machines.length !== 1 ? 's' : ''}
+                </span>
               </div>
-            )
-          ))}
-        </div>
-      </div>
-      
-      {/* Dryers */}
-      <div>
-        <h4 className="text-xl font-black text-teal-400 mb-4">DRYERS</h4>
-        <div className="space-y-4">
-          {dryerGroups.map((group, idx) => (
-            group.machines.length > 0 && (
-              <div key={idx}>
-                <div className="text-sm text-zinc-400 font-bold mb-2">{group.label}</div>
-                <div className="flex gap-2 flex-wrap">
-                  {group.machines.map(machine => (
-                    <MachineBox key={machine.id} machine={machine} />
-                  ))}
-                </div>
-              </div>
-            )
-          ))}
-        </div>
+              
+              {/* Group by type within bulkhead */}
+              {['Washer', 'Dryer'].map(type => {
+                const typeMachines = group.machines.filter(m => m.type === type);
+                if (typeMachines.length === 0) return null;
+                
+                return (
+                  <div key={type} className="mb-4 last:mb-0">
+                    <div className="text-sm text-zinc-400 font-bold mb-2 uppercase">
+                      {type}s
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      {typeMachines.map(machine => (
+                        <MachineBox key={machine.id} machine={machine} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ))}
+        
+        {/* Show unassigned machines warning if any exist */}
+        {machines.filter(m => !m.bulkheadId && !m.archived).length > 0 && (
+          <div className="bg-yellow-900/30 border-2 border-yellow-600 p-4">
+            <p className="text-yellow-300 font-bold mb-2">
+              ⚠️ {machines.filter(m => !m.bulkheadId && !m.archived).length} Unassigned Machine(s)
+            </p>
+            <p className="text-zinc-300 text-sm">
+              Some machines are not assigned to any bulkhead. Assign them in Settings to display them here.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
