@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 01:45 UTC - Spatial Layout System -->
+  <!-- VERSION: 2026-02-14 01:55 UTC - Debug Live View Loading -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 01:45 UTC - Spatial Layout System');
-console.log('📐 Live View now has spatial grid layout matching your physical floor plan!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 01:55 UTC - Debug Live View Loading');
+console.log('🐛 Added debugging to diagnose Live View configuration loading');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -5121,9 +5121,17 @@ const MachineStatusGrid = ({ machines }) => {
   // Load team config to get bulkheads
   useEffect(() => {
     const loadConfig = async () => {
-      const config = await loadSharedConfig();
-      setTeamConfig(config);
-      setLoading(false);
+      try {
+        console.log('🔍 MachineStatusGrid: Loading team config...');
+        const config = await loadSharedConfig();
+        console.log('🔍 MachineStatusGrid: Config loaded:', config);
+        console.log('🔍 MachineStatusGrid: Bulkheads:', config?.bulkheads);
+        setTeamConfig(config);
+        setLoading(false);
+      } catch (error) {
+        console.error('❌ MachineStatusGrid: Error loading config:', error);
+        setLoading(false);
+      }
     };
     loadConfig();
   }, []);
@@ -5152,7 +5160,23 @@ const MachineStatusGrid = ({ machines }) => {
     );
   }
   
-  const bulkheads = teamConfig?.bulkheads || [];
+  // Check if teamConfig exists and has bulkheads
+  if (!teamConfig) {
+    return (
+      <div className="bg-zinc-800 border-2 border-teal-500 p-6">
+        <h3 className="text-2xl font-black text-teal-400 mb-6">🔧 MACHINE STATUS - LIVE VIEW</h3>
+        <div className="bg-red-900/30 border-2 border-red-600 p-4">
+          <p className="text-red-300 font-bold mb-2">❌ Configuration Error</p>
+          <p className="text-zinc-300 text-sm">
+            Unable to load team configuration. Please check your spreadsheet connection and try refreshing the page.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  const bulkheads = teamConfig.bulkheads || [];
+  console.log('🔍 MachineStatusGrid: Final bulkheads array:', bulkheads, 'Length:', bulkheads.length);
   
   if (bulkheads.length === 0) {
     return (
