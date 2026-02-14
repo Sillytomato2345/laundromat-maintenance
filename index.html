@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 04:15 UTC - Mobile Responsive Layout -->
+  <!-- VERSION: 2026-02-14 04:30 UTC - Portrait Mode Optimized -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 04:15 UTC - Mobile Responsive Layout');
-console.log('📱 Spatial view now works perfectly on mobile with no scrollbars!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 04:30 UTC - Portrait Mode Optimized');
+console.log('📱 Ultra-compact layout for portrait mode - 28px cells!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -5434,7 +5434,7 @@ const MachineStatusGrid = ({ machines }) => {
     
     return (
       <div 
-        className={`${bgColor} ${borderColor} ${textColor} border px-0.5 sm:px-1 py-0.5 font-bold text-center text-[8px] sm:text-[9px] md:text-[10px] hover:opacity-80 cursor-pointer transition-opacity min-w-[20px] sm:min-w-[24px] md:min-w-[28px]`}
+        className={`${bgColor} ${borderColor} ${textColor} border px-0.5 py-0.5 font-bold text-center text-[7px] sm:text-[9px] md:text-[10px] hover:opacity-80 cursor-pointer transition-opacity min-w-[18px] sm:min-w-[24px] md:min-w-[28px] leading-tight`}
         title={`${getMachineDisplayName(machine)}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
       >
         {machine.number || machine.machineNumber || getMachineNumber(machine)}
@@ -5474,19 +5474,19 @@ const MachineStatusGrid = ({ machines }) => {
       <div 
         key={bulkhead.id}
         style={style}
-        className="bg-zinc-900 border border-teal-600 sm:border-2 p-1 sm:p-2 flex flex-col h-full overflow-hidden"
+        className="bg-zinc-900 border border-teal-600 p-0.5 sm:p-1 md:p-2 flex flex-col h-full overflow-hidden"
       >
-        <div className="text-[8px] sm:text-[9px] md:text-xs font-black text-teal-400 mb-0.5 sm:mb-1 text-center flex-shrink-0">
+        <div className="text-[7px] sm:text-[9px] md:text-xs font-black text-teal-400 mb-0.5 text-center flex-shrink-0 leading-tight">
           {bulkhead.name}
         </div>
         
         {display.rows > 1 ? (
           /* Multiple rows - display each row separately */
-          <div className="flex flex-col gap-0.5 sm:gap-1 flex-1 justify-center items-center">
+          <div className="flex flex-col gap-0.5 flex-1 justify-center items-center">
             {Object.keys(machinesByRow).sort().map(rowNum => (
               <div 
                 key={rowNum}
-                className={`flex gap-0.5 sm:gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center`}
+                className={`flex gap-0.5 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center`}
               >
                 {machinesByRow[rowNum].map(machine => (
                   <MachineBox key={machine.id} machine={machine} />
@@ -5496,7 +5496,7 @@ const MachineStatusGrid = ({ machines }) => {
           </div>
         ) : (
           /* Single row - display based on direction */
-          <div className={`flex gap-0.5 sm:gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center flex-1`}>
+          <div className={`flex gap-0.5 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center flex-1`}>
             {sortedMachines.map(machine => (
               <MachineBox key={machine.id} machine={machine} />
             ))}
@@ -5547,17 +5547,25 @@ const MachineStatusGrid = ({ machines }) => {
       </div>
       
       {viewMode === 'spatial' ? (
-        /* Spatial Grid Layout - Mobile responsive */
+        /* Spatial Grid Layout - Mobile responsive with portrait detection */
         <div className="w-full overflow-hidden">
+          {/* Portrait mode warning */}
+          <div className="block sm:hidden mb-2 bg-yellow-900/30 border border-yellow-600 p-2">
+            <p className="text-yellow-300 text-[10px] font-bold">
+              💡 Tip: Rotate to landscape or use List view for better visibility on phone
+            </p>
+          </div>
+          
           <div 
-            className="bg-zinc-900 border-2 border-zinc-700 p-1 sm:p-2 md:p-4"
+            className="bg-zinc-900 border border-zinc-700 sm:border-2 p-1 sm:p-2 md:p-4"
             style={{
               display: 'grid',
-              gridTemplateRows: `repeat(${maxRow}, minmax(35px, 1fr))`,
-              gridTemplateColumns: `repeat(${maxCol}, minmax(45px, 1fr))`,
-              gap: '2px',
-              minHeight: '300px',
-              width: '100%'
+              gridTemplateRows: `repeat(${maxRow}, minmax(28px, 1fr))`,
+              gridTemplateColumns: `repeat(${maxCol}, minmax(32px, 1fr))`,
+              gap: '1px',
+              minHeight: '250px',
+              width: '100%',
+              fontSize: '8px'
             }}
           >
             {bulkheadGroups.map(group => (
