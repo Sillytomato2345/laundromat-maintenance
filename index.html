@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 02:30 UTC - Machine Positioning System -->
+  <!-- VERSION: 2026-02-14 03:30 UTC - Bulkhead Sheet Creation Fix -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 02:30 UTC - Machine Positioning System');
-console.log('📍 Added machine order and row positioning within bulkheads!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 03:30 UTC - Bulkhead Sheet Creation Fix');
+console.log('✅ Bulkheads now auto-create sheet and persist properly!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -833,12 +833,15 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
     // Load bulkheads
     let bulkheads = [];
     try {
+      console.log('🔍 Loading bulkheads from _Bulkheads sheet...');
       const bulkheadsResponse = await window.gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId,
         range: '_Bulkheads!A2:E100',
       });
       
       const bulkheadRows = bulkheadsResponse.result.values || [];
+      console.log('📋 Found', bulkheadRows.length, 'bulkhead rows in sheet');
+      
       bulkheads = bulkheadRows.map(row => ({
         id: row[0],
         name: row[1],
@@ -847,9 +850,12 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
         display: row[4] ? JSON.parse(row[4]) : { direction: 'vertical', rows: 1 }
       }));
       console.log('✅ Bulkheads loaded from spreadsheet:', bulkheads.length);
+      bulkheads.forEach(b => console.log('  -', b.name, '(order:', b.order + ')'));
     } catch (err) {
-      console.log('ℹ️ _Bulkheads sheet not found, using defaults');
+      console.log('⚠️ _Bulkheads sheet not found, using defaults');
+      console.log('Error details:', err.result?.error?.message || err.message);
       bulkheads = DEFAULT_BULKHEADS;
+      console.log('Using', bulkheads.length, 'default bulkheads');
     }
     
     if (teamMembers.length === 0) {
@@ -1080,10 +1086,53 @@ const saveRequestSettingsToSheet = async (spreadsheetId, settings) => {
 // Save bulkheads to spreadsheet
 const saveBulkheadsToSheet = async (spreadsheetId, bulkheads) => {
   try {
-    // Clear existing bulkheads
+    console.log('💾 Attempting to save bulkheads:', bulkheads.length);
+    
+    // First, ensure the _Bulkheads sheet exists
+    try {
+      await window.gapi.client.sheets.spreadsheets.get({
+        spreadsheetId,
+        ranges: ['_Bulkheads!A1'],
+        fields: 'sheets.properties'
+      });
+      console.log('✅ _Bulkheads sheet exists');
+    } catch (err) {
+      // Sheet doesn't exist, create it
+      console.log('📋 Creating _Bulkheads sheet...');
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+          requests: [{
+            addSheet: {
+              properties: {
+                title: '_Bulkheads',
+                hidden: true,
+                gridProperties: {
+                  rowCount: 100,
+                  columnCount: 10
+                }
+              }
+            }
+          }]
+        }
+      });
+      
+      // Add header row
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: '_Bulkheads!A1:E1',
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+          values: [['id', 'name', 'order', 'layout', 'display']]
+        }
+      });
+      console.log('✅ _Bulkheads sheet created');
+    }
+    
+    // Clear existing data (not the header)
     await window.gapi.client.sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: '_Bulkheads!A2:Z100',
+      range: '_Bulkheads!A2:E100',
     });
     
     // Save each bulkhead as a row
@@ -1104,10 +1153,12 @@ const saveBulkheadsToSheet = async (spreadsheetId, bulkheads) => {
       });
     }
     
-    console.log('✅ Bulkheads saved:', bulkheads.length);
+    console.log('✅ Bulkheads saved successfully:', bulkheads.length);
     return true;
   } catch (err) {
     console.error('❌ Error saving bulkheads:', err);
+    console.error('Error details:', err.result?.error || err);
+    alert('⚠️ Failed to save bulkheads. Check console for details.');
     return false;
   }
 };
