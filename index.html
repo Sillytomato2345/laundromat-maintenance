@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 03:30 UTC - Bulkhead Sheet Creation Fix -->
+  <!-- VERSION: 2026-02-14 04:00 UTC - No Scrollbars, Auto-Fit Layout -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 03:30 UTC - Bulkhead Sheet Creation Fix');
-console.log('✅ Bulkheads now auto-create sheet and persist properly!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 04:00 UTC - No Scrollbars, Auto-Fit Layout');
+console.log('✅ Content auto-scales to fit - no scrolling needed!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -5434,7 +5434,7 @@ const MachineStatusGrid = ({ machines }) => {
     
     return (
       <div 
-        className={`${bgColor} ${borderColor} ${textColor} border-2 px-2 py-1 font-black text-center text-xs hover:opacity-80 cursor-pointer transition-opacity`}
+        className={`${bgColor} ${borderColor} ${textColor} border px-1.5 py-0.5 font-bold text-center text-[10px] hover:opacity-80 cursor-pointer transition-opacity min-w-[28px]`}
         title={`${getMachineDisplayName(machine)}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
       >
         {machine.number || machine.machineNumber || getMachineNumber(machine)}
@@ -5474,19 +5474,19 @@ const MachineStatusGrid = ({ machines }) => {
       <div 
         key={bulkhead.id}
         style={style}
-        className="bg-zinc-900 border-2 border-teal-600 p-3"
+        className="bg-zinc-900 border-2 border-teal-600 p-2 flex flex-col h-full overflow-hidden"
       >
-        <div className="text-sm font-black text-teal-400 mb-2 text-center">
+        <div className="text-xs font-black text-teal-400 mb-1 text-center flex-shrink-0">
           {bulkhead.name}
         </div>
         
         {display.rows > 1 ? (
           /* Multiple rows - display each row separately */
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1 flex-1 justify-center items-center">
             {Object.keys(machinesByRow).sort().map(rowNum => (
               <div 
                 key={rowNum}
-                className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row'} justify-center`}
+                className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center`}
               >
                 {machinesByRow[rowNum].map(machine => (
                   <MachineBox key={machine.id} machine={machine} />
@@ -5496,7 +5496,7 @@ const MachineStatusGrid = ({ machines }) => {
           </div>
         ) : (
           /* Single row - display based on direction */
-          <div className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center`}>
+          <div className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center items-center flex-1`}>
             {sortedMachines.map(machine => (
               <MachineBox key={machine.id} machine={machine} />
             ))}
@@ -5552,10 +5552,10 @@ const MachineStatusGrid = ({ machines }) => {
           className="bg-zinc-900 border-2 border-zinc-700 p-4"
           style={{
             display: 'grid',
-            gridTemplateRows: `repeat(${maxRow}, minmax(120px, 1fr))`,
-            gridTemplateColumns: `repeat(${maxCol}, minmax(120px, 1fr))`,
-            gap: '8px',
-            minHeight: '400px'
+            gridTemplateRows: `repeat(${maxRow}, minmax(80px, 1fr))`,
+            gridTemplateColumns: `repeat(${maxCol}, minmax(100px, 1fr))`,
+            gap: '6px',
+            minHeight: '500px'
           }}
         >
           {bulkheadGroups.map(group => (
