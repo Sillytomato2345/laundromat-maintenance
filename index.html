@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 02:10 UTC - BULKHEADS SAVE/LOAD FIXED -->
+  <!-- VERSION: 2026-02-14 02:30 UTC - Machine Positioning System -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 02:10 UTC - BULKHEADS SAVE/LOAD FIXED');
-console.log('✅ Bulkheads now properly save to and load from spreadsheet!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 02:30 UTC - Machine Positioning System');
+console.log('📍 Added machine order and row positioning within bulkheads!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -173,19 +173,22 @@ const DEFAULT_BULKHEADS = [
     id: 'bulkhead_1', 
     name: 'Front Section', 
     order: 1,
-    layout: { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 }
+    layout: { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 },
+    display: { direction: 'vertical', rows: 1 } // vertical or horizontal, number of rows
   },
   { 
     id: 'bulkhead_2', 
     name: 'Middle Section', 
     order: 2,
-    layout: { gridRow: 2, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 }
+    layout: { gridRow: 2, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 },
+    display: { direction: 'vertical', rows: 1 }
   },
   { 
     id: 'bulkhead_3', 
     name: 'Back Section', 
     order: 3,
-    layout: { gridRow: 3, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 }
+    layout: { gridRow: 3, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 2 },
+    display: { direction: 'vertical', rows: 1 }
   }
 ];
 
@@ -832,7 +835,7 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
     try {
       const bulkheadsResponse = await window.gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: '_Bulkheads!A2:D100',
+        range: '_Bulkheads!A2:E100',
       });
       
       const bulkheadRows = bulkheadsResponse.result.values || [];
@@ -840,7 +843,8 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
         id: row[0],
         name: row[1],
         order: parseInt(row[2]) || 1,
-        layout: row[3] ? JSON.parse(row[3]) : { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 1 }
+        layout: row[3] ? JSON.parse(row[3]) : { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 1 },
+        display: row[4] ? JSON.parse(row[4]) : { direction: 'vertical', rows: 1 }
       }));
       console.log('✅ Bulkheads loaded from spreadsheet:', bulkheads.length);
     } catch (err) {
@@ -1087,13 +1091,14 @@ const saveBulkheadsToSheet = async (spreadsheetId, bulkheads) => {
       bulkhead.id,
       bulkhead.name,
       bulkhead.order,
-      JSON.stringify(bulkhead.layout || {})
+      JSON.stringify(bulkhead.layout || {}),
+      JSON.stringify(bulkhead.display || { direction: 'vertical', rows: 1 })
     ]);
     
     if (values.length > 0) {
       await window.gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: '_Bulkheads!A2:D',
+        range: '_Bulkheads!A2:E',
         valueInputOption: 'USER_ENTERED',
         resource: { values }
       });
@@ -1873,7 +1878,7 @@ const App = () => {
       console.log('📊 loadAllData: Calling batchGet...');
       const response = await window.gapi.client.sheets.spreadsheets.values.batchGet({
         spreadsheetId: id,
-        ranges: ['Locations!A2:C', 'Machines!A2:M', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
+        ranges: ['Locations!A2:C', 'Machines!A2:O', 'Equipment Logs!A2:M', 'Building Logs!A2:L', 'Vendors!A2:H', 'Parts Inventory!A2:K', 'Parts Usage!A2:F', 'Scheduled Maintenance!A2:L', 'Warranties!A2:G'],
       });
       
       console.log('📊 loadAllData: batchGet response received');
@@ -1933,7 +1938,9 @@ const App = () => {
         status: r[9] || 'In Service', // Sprint 5: Default to 'In Service'
         outOfOrderReason: r[10] || '', // Sprint 5
         machineNumber: r[11] || '', // Machine number field
-        bulkheadId: r[12] || '' // Bulkhead assignment (column M)
+        bulkheadId: r[12] || '', // Bulkhead assignment (column M)
+        displayOrder: r[13] ? parseInt(r[13]) : undefined, // Display order within bulkhead (column N)
+        displayRow: r[14] ? parseInt(r[14]) : 1 // Display row for multi-row bulkheads (column O)
       })));
       setEquipmentLogs(eqLog.map(r => ({ id: r[0], locationId: r[1], machineId: r[2], date: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', partsUsed: r[8] || '', notes: r[9] || '', files: r[10] || '', locked: r[11] === 'true', warranty: r[12] === 'true' })));
       setBuildingLogs(bldLog.map(r => ({ id: r[0], locationId: r[1], date: r[2], category: r[3], issue: r[4], tech: r[5], cost: r[6], hours: r[7] || '0', notes: r[8] || '', files: r[9] || '', locked: r[10] === 'true', warranty: r[11] === 'true' })));
@@ -4251,6 +4258,10 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
         gridColumn: 1,
         gridRowSpan: 1,
         gridColumnSpan: 1
+      },
+      display: {
+        direction: 'vertical', // or 'horizontal'
+        rows: 1 // number of rows for machines
       }
     };
     
@@ -4496,56 +4507,110 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                 }
               };
               
+              const updateDisplay = async (field, value) => {
+                bulkhead.display = bulkhead.display || { direction: 'vertical', rows: 1 };
+                if (field === 'direction') {
+                  bulkhead.display[field] = value;
+                } else {
+                  bulkhead.display[field] = parseInt(value) || 1;
+                }
+                teamConfig.updatedBy = currentUser;
+                const saved = await saveSharedConfig(teamConfig);
+                if (saved) {
+                  setTeamConfig({...teamConfig});
+                }
+              };
+              
+              const display = bulkhead.display || { direction: 'vertical', rows: 1 };
+              
               return (
                 <div key={bulkhead.id} className="bg-zinc-800 border border-zinc-700 p-3">
-                  <div className="font-bold text-white mb-2">{bulkhead.name}</div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <label className="text-zinc-400 text-xs">Row:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="12"
-                        value={layout.gridRow}
-                        onChange={(e) => updateLayout('gridRow', e.target.value)}
-                        className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 text-xs">Column:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="12"
-                        value={layout.gridColumn}
-                        onChange={(e) => updateLayout('gridColumn', e.target.value)}
-                        className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 text-xs">Row Span:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="6"
-                        value={layout.gridRowSpan}
-                        onChange={(e) => updateLayout('gridRowSpan', e.target.value)}
-                        className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 text-xs">Column Span:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="6"
-                        value={layout.gridColumnSpan}
-                        onChange={(e) => updateLayout('gridColumnSpan', e.target.value)}
-                        className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
-                      />
+                  <div className="font-bold text-white mb-3">{bulkhead.name}</div>
+                  
+                  {/* Grid Position */}
+                  <div className="mb-3">
+                    <div className="text-xs text-zinc-400 font-bold mb-2">Grid Position</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <label className="text-zinc-400 text-xs">Row:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="12"
+                          value={layout.gridRow}
+                          onChange={(e) => updateLayout('gridRow', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-zinc-400 text-xs">Column:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="12"
+                          value={layout.gridColumn}
+                          onChange={(e) => updateLayout('gridColumn', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-zinc-400 text-xs">Row Span:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="6"
+                          value={layout.gridRowSpan}
+                          onChange={(e) => updateLayout('gridRowSpan', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-zinc-400 text-xs">Column Span:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="6"
+                          value={layout.gridColumnSpan}
+                          onChange={(e) => updateLayout('gridColumnSpan', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="text-xs text-zinc-500 mt-2">
+                  
+                  {/* Machine Display */}
+                  <div className="border-t border-zinc-700 pt-3">
+                    <div className="text-xs text-zinc-400 font-bold mb-2">Machine Display</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <label className="text-zinc-400 text-xs">Direction:</label>
+                        <select
+                          value={display.direction}
+                          onChange={(e) => updateDisplay('direction', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        >
+                          <option value="vertical">Vertical (↓)</option>
+                          <option value="horizontal">Horizontal (→)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-zinc-400 text-xs">Rows:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="3"
+                          value={display.rows}
+                          onChange={(e) => updateDisplay('rows', e.target.value)}
+                          className="w-full bg-zinc-700 border border-zinc-600 text-white px-2 py-1 mt-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-2">
+                      Machines will display {display.direction}ly{display.rows > 1 ? ` in ${display.rows} row(s)` : ''}
+                    </div>
+                  </div>
+                  
+                  <div className="text-xs text-zinc-500 mt-2 pt-2 border-t border-zinc-700">
                     Position: Row {layout.gridRow}, Column {layout.gridColumn} | 
                     Size: {layout.gridRowSpan} row(s) × {layout.gridColumnSpan} column(s)
                   </div>
@@ -4586,84 +4651,116 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                 {bulkheadMachines.length === 0 ? (
                   <p className="text-xs text-zinc-500 italic py-2">No machines assigned</p>
                 ) : (
-                  <div className="space-y-1">
-                    {bulkheadMachines.map(machine => (
-                      <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2 flex items-center justify-between text-sm">
-                        <span className="text-zinc-200">{machine.name} - {machine.model}</span>
-                        <div className="flex gap-2">
-                          <select
-                            value={machine.bulkheadId || ''}
-                            onChange={async (e) => {
-                              // Capture the value immediately before React resets it
-                              const selectedValue = e.target.value;
-                              
-                              try {
-                                console.log('🔍 DEBUG: Selected value:', selectedValue);
-                                console.log('🔍 DEBUG: Available bulkheads:', bulkheads);
-                                console.log('🔍 DEBUG: TeamConfig bulkheads:', teamConfig?.bulkheads);
-                                
-                                // First, get all machines from the sheet to find the correct row
-                                const response = await window.gapi.client.sheets.spreadsheets.values.get({
-                                  spreadsheetId: spreadsheetId,
-                                  range: 'Machines!A2:M'
-                                });
-                                
-                                const rows = response.result.values || [];
-                                const rowIndex = rows.findIndex(row => row[0] === machine.id);
-                                
-                                if (rowIndex === -1) {
-                                  throw new Error('Machine not found in sheet');
-                                }
-                                
-                                const actualRow = rowIndex + 2; // +2 because sheet starts at row 1 and header is row 1
-                                const currentRow = rows[rowIndex];
-                                
-                                // Update the bulkheadId column (column M = index 12)
-                                const updatedRow = [...currentRow];
-                                while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
-                                updatedRow[12] = selectedValue; // Column M
-                                
-                                await window.gapi.client.sheets.spreadsheets.values.update({
-                                  spreadsheetId: spreadsheetId,
-                                  range: `Machines!A${actualRow}:M${actualRow}`,
-                                  valueInputOption: 'RAW',
-                                  resource: {
-                                    values: [updatedRow]
-                                  }
-                                });
-                                
-                                machine.bulkheadId = selectedValue;
-                                
-                                // Debug the exact lookup process
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: About to find bulkhead');
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: selectedValue =', selectedValue);
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: typeof selectedValue =', typeof selectedValue);
-                                const foundBulkhead = bulkheads.find(b => {
-                                  console.log('🔍 ASSIGNED LOOKUP DEBUG: Comparing', b.id, '===', selectedValue, '?', b.id === selectedValue);
-                                  return b.id === selectedValue;
-                                });
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: Found bulkhead =', foundBulkhead);
-                                const bulkheadName = foundBulkhead?.name || 'Unassigned';
-                                console.log('🔍 ASSIGNED LOOKUP DEBUG: Final bulkheadName =', bulkheadName);
-                                
-                                alert(`✅ ${machine.name} moved to ${bulkheadName}`);
-                                // Force re-render
-                                setTeamConfig({...teamConfig});
-                              } catch (err) {
-                                console.error('Update error:', err);
-                                alert('Failed to update machine: ' + err.message);
-                              }
-                            }}
-                            className="bg-zinc-600 text-white text-xs px-2 py-1 border border-zinc-500"
-                          >
-                            {bulkheads.map(b => (
-                              <option key={b.id} value={b.id}>{b.name}</option>
-                            ))}
-                            <option value="">Unassigned</option>
-                          </select>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="space-y-2">
+                    {bulkheadMachines
+                      .sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999))
+                      .map((machine, index) => {
+                        const bulkheadDisplay = bulkhead.display || { direction: 'vertical', rows: 1 };
+                        
+                        const updateMachinePosition = async (field, value) => {
+                          try {
+                            // Get all machines from sheet
+                            const response = await window.gapi.client.sheets.spreadsheets.values.get({
+                              spreadsheetId: spreadsheetId,
+                              range: 'Machines!A2:O'
+                            });
+                            
+                            const rows = response.result.values || [];
+                            const rowIndex = rows.findIndex(row => row[0] === machine.id);
+                            
+                            if (rowIndex === -1) {
+                              throw new Error('Machine not found in sheet');
+                            }
+                            
+                            const actualRow = rowIndex + 2;
+                            const currentRow = rows[rowIndex];
+                            const updatedRow = [...currentRow];
+                            while (updatedRow.length < 15) updatedRow.push('');
+                            
+                            if (field === 'bulkheadId') {
+                              updatedRow[12] = value;
+                              machine.bulkheadId = value;
+                            } else if (field === 'displayOrder') {
+                              updatedRow[13] = value;
+                              machine.displayOrder = parseInt(value) || undefined;
+                            } else if (field === 'displayRow') {
+                              updatedRow[14] = value;
+                              machine.displayRow = parseInt(value) || 1;
+                            }
+                            
+                            await window.gapi.client.sheets.spreadsheets.values.update({
+                              spreadsheetId: spreadsheetId,
+                              range: `Machines!A${actualRow}:O${actualRow}`,
+                              valueInputOption: 'RAW',
+                              resource: { values: [updatedRow] }
+                            });
+                            
+                            setTeamConfig({...teamConfig});
+                            
+                            if (field === 'bulkheadId') {
+                              const foundBulkhead = bulkheads.find(b => b.id === value);
+                              const bulkheadName = foundBulkhead?.name || 'Unassigned';
+                              alert(`✅ ${machine.name} moved to ${bulkheadName}`);
+                            }
+                          } catch (err) {
+                            console.error('Update error:', err);
+                            alert('Failed to update: ' + err.message);
+                          }
+                        };
+                        
+                        return (
+                          <div key={machine.id} className="bg-zinc-700 border border-zinc-600 px-3 py-2">
+                            <div className="flex items-start justify-between gap-3 mb-2">
+                              <div className="flex-1">
+                                <div className="text-zinc-200 font-bold text-sm">{machine.name}</div>
+                                <div className="text-zinc-400 text-xs">{machine.model}</div>
+                              </div>
+                              <div className="text-xs text-zinc-500">#{machine.displayOrder || (index + 1)}</div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <label className="text-zinc-400 block mb-1">Order:</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="99"
+                                  value={machine.displayOrder || ''}
+                                  placeholder="Auto"
+                                  onChange={(e) => updateMachinePosition('displayOrder', e.target.value)}
+                                  className="w-full bg-zinc-600 border border-zinc-500 text-white px-2 py-1"
+                                />
+                              </div>
+                              {bulkheadDisplay.rows > 1 && (
+                                <div>
+                                  <label className="text-zinc-400 block mb-1">Row:</label>
+                                  <select
+                                    value={machine.displayRow || 1}
+                                    onChange={(e) => updateMachinePosition('displayRow', e.target.value)}
+                                    className="w-full bg-zinc-600 border border-zinc-500 text-white px-2 py-1"
+                                  >
+                                    {Array.from({length: bulkheadDisplay.rows}, (_, i) => i + 1).map(rowNum => (
+                                      <option key={rowNum} value={rowNum}>Row {rowNum}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                              <div className={bulkheadDisplay.rows > 1 ? '' : 'col-span-2'}>
+                                <label className="text-zinc-400 block mb-1">Bulkhead:</label>
+                                <select
+                                  value={machine.bulkheadId || ''}
+                                  onChange={(e) => updateMachinePosition('bulkheadId', e.target.value)}
+                                  className="w-full bg-zinc-600 border border-zinc-500 text-white px-2 py-1"
+                                >
+                                  {bulkheads.map(b => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                  ))}
+                                  <option value="">Unassigned</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 )}
               </div>
@@ -4693,7 +4790,7 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             // Get all machines from sheet to find correct row
                             const allMachinesResponse = await window.gapi.client.sheets.spreadsheets.values.get({
                               spreadsheetId: spreadsheetId,
-                              range: 'Machines!A2:M'
+                              range: 'Machines!A2:O'
                             });
                             
                             const rows = allMachinesResponse.result.values || [];
@@ -4708,12 +4805,12 @@ const BulkheadConfigSection = ({ currentUser, userRole, machines, spreadsheetId 
                             
                             // Update the bulkheadId column (column M = index 12)
                             const updatedRow = [...currentRow];
-                            while (updatedRow.length < 13) updatedRow.push(''); // Ensure row has at least 13 columns
+                            while (updatedRow.length < 15) updatedRow.push(''); // Ensure row has at least 15 columns
                             updatedRow[12] = selectedValue; // Column M
                             
                             await window.gapi.client.sheets.spreadsheets.values.update({
                               spreadsheetId: spreadsheetId,
-                              range: `Machines!A${actualRow}:M${actualRow}`,
+                              range: `Machines!A${actualRow}:O${actualRow}`,
                               valueInputOption: 'RAW',
                               resource: { values: [updatedRow] }
                             });
@@ -5297,6 +5394,7 @@ const MachineStatusGrid = ({ machines }) => {
   const BulkheadCard = ({ group }) => {
     const { bulkhead, machines: bulkheadMachines } = group;
     const layout = bulkhead.layout || { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 1 };
+    const display = bulkhead.display || { direction: 'vertical', rows: 1 };
     
     const style = {
       gridRow: `${layout.gridRow} / span ${layout.gridRowSpan}`,
@@ -5304,6 +5402,22 @@ const MachineStatusGrid = ({ machines }) => {
     };
     
     if (bulkheadMachines.length === 0) return null;
+    
+    // Sort machines by displayOrder if it exists, otherwise by number
+    const sortedMachines = [...bulkheadMachines].sort((a, b) => {
+      if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+        return a.displayOrder - b.displayOrder;
+      }
+      return a.number - b.number;
+    });
+    
+    // Group machines by row if multiple rows
+    const machinesByRow = {};
+    sortedMachines.forEach(machine => {
+      const row = machine.displayRow || 1;
+      if (!machinesByRow[row]) machinesByRow[row] = [];
+      machinesByRow[row].push(machine);
+    });
     
     return (
       <div 
@@ -5314,11 +5428,29 @@ const MachineStatusGrid = ({ machines }) => {
         <div className="text-sm font-black text-teal-400 mb-2 text-center">
           {bulkhead.name}
         </div>
-        <div className="flex flex-wrap gap-1 justify-center">
-          {bulkheadMachines.map(machine => (
-            <MachineBox key={machine.id} machine={machine} />
-          ))}
-        </div>
+        
+        {display.rows > 1 ? (
+          /* Multiple rows - display each row separately */
+          <div className="space-y-1">
+            {Object.keys(machinesByRow).sort().map(rowNum => (
+              <div 
+                key={rowNum}
+                className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row'} justify-center`}
+              >
+                {machinesByRow[rowNum].map(machine => (
+                  <MachineBox key={machine.id} machine={machine} />
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* Single row - display based on direction */
+          <div className={`flex gap-1 ${display.direction === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} justify-center`}>
+            {sortedMachines.map(machine => (
+              <MachineBox key={machine.id} machine={machine} />
+            ))}
+          </div>
+        )}
       </div>
     );
   };
