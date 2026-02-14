@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 01:55 UTC - Debug Live View Loading -->
+  <!-- VERSION: 2026-02-14 02:10 UTC - BULKHEADS SAVE/LOAD FIXED -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 01:55 UTC - Debug Live View Loading');
-console.log('🐛 Added debugging to diagnose Live View configuration loading');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 02:10 UTC - BULKHEADS SAVE/LOAD FIXED');
+console.log('✅ Bulkheads now properly save to and load from spreadsheet!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -719,6 +719,12 @@ const saveSharedConfig = async (config) => {
       await saveRequestSettingsToSheet(spreadsheetId, config.requestSettings);
     }
     
+    // Save bulkheads if they exist
+    if (config.bulkheads) {
+      console.log('💾 Saving bulkheads to spreadsheet...');
+      await saveBulkheadsToSheet(spreadsheetId, config.bulkheads);
+    }
+    
     console.log('✅ Config saved to spreadsheet');
     return true;
   } catch (err) {
@@ -821,6 +827,27 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
       console.log('ℹ️ _Config sheet not found');
     }
     
+    // Load bulkheads
+    let bulkheads = [];
+    try {
+      const bulkheadsResponse = await window.gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: '_Bulkheads!A2:D100',
+      });
+      
+      const bulkheadRows = bulkheadsResponse.result.values || [];
+      bulkheads = bulkheadRows.map(row => ({
+        id: row[0],
+        name: row[1],
+        order: parseInt(row[2]) || 1,
+        layout: row[3] ? JSON.parse(row[3]) : { gridRow: 1, gridColumn: 1, gridRowSpan: 1, gridColumnSpan: 1 }
+      }));
+      console.log('✅ Bulkheads loaded from spreadsheet:', bulkheads.length);
+    } catch (err) {
+      console.log('ℹ️ _Bulkheads sheet not found, using defaults');
+      bulkheads = DEFAULT_BULKHEADS;
+    }
+    
     if (teamMembers.length === 0) {
       console.log('ℹ️ No team config found in spreadsheet');
       return null;
@@ -828,6 +855,7 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
     
     console.log('✅ Team config loaded from spreadsheet');
     console.log('   Team members:', teamMembers.length);
+    console.log('   Bulkheads:', bulkheads.length);
     
     return {
       version: '2.0',
@@ -837,6 +865,7 @@ const loadSharedConfig = async (providedSpreadsheetId = null) => {
       sharedSpreadsheetId: spreadsheetId,
       teamMembers,
       requestSettings,
+      bulkheads,
       pendingRemovals: [],
       removalLog: []
     };
@@ -1040,6 +1069,40 @@ const saveRequestSettingsToSheet = async (spreadsheetId, settings) => {
     return true;
   } catch (err) {
     console.error('❌ Error saving settings:', err);
+    return false;
+  }
+};
+
+// Save bulkheads to spreadsheet
+const saveBulkheadsToSheet = async (spreadsheetId, bulkheads) => {
+  try {
+    // Clear existing bulkheads
+    await window.gapi.client.sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: '_Bulkheads!A2:Z100',
+    });
+    
+    // Save each bulkhead as a row
+    const values = bulkheads.map(bulkhead => [
+      bulkhead.id,
+      bulkhead.name,
+      bulkhead.order,
+      JSON.stringify(bulkhead.layout || {})
+    ]);
+    
+    if (values.length > 0) {
+      await window.gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: '_Bulkheads!A2:D',
+        valueInputOption: 'USER_ENTERED',
+        resource: { values }
+      });
+    }
+    
+    console.log('✅ Bulkheads saved:', bulkheads.length);
+    return true;
+  } catch (err) {
+    console.error('❌ Error saving bulkheads:', err);
     return false;
   }
 };
