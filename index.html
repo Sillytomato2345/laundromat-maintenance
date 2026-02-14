@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maintenance Pro - Sprint 3 Complete</title>
-  <!-- VERSION: 2026-02-14 04:30 UTC - Portrait Mode Optimized -->
+  <!-- VERSION: 2026-02-14 04:45 UTC - Ultra-Compact Portrait (24px cells) -->
   <style>
     .horizontal-scroll { overflow-x: auto; overflow-y: hidden; scroll-behavior: smooth; }
     .horizontal-scroll::-webkit-scrollbar { height: 8px; }
@@ -32,8 +32,8 @@
 const { useState, useEffect, useRef } = React;
 
 // VERSION CHECK - Confirm new version is loaded
-console.log('🚀 Maintenance Pro VERSION: 2026-02-14 04:30 UTC - Portrait Mode Optimized');
-console.log('📱 Ultra-compact layout for portrait mode - 28px cells!');
+console.log('🚀 Maintenance Pro VERSION: 2026-02-14 04:45 UTC - Ultra-Compact Portrait (24px cells)');
+console.log('📱 Minimum cell size 22×24px - fits 11+ columns on portrait!');
 
 // ========== PASTE YOUR CREDENTIALS HERE ==========
 const CLIENT_ID = '591405706276-krboirruc2l2kest5eegk61ljt1gjnam.apps.googleusercontent.com';  // Should look like: 123456789-abc123.apps.googleusercontent.com
@@ -5434,7 +5434,7 @@ const MachineStatusGrid = ({ machines }) => {
     
     return (
       <div 
-        className={`${bgColor} ${borderColor} ${textColor} border px-0.5 py-0.5 font-bold text-center text-[7px] sm:text-[9px] md:text-[10px] hover:opacity-80 cursor-pointer transition-opacity min-w-[18px] sm:min-w-[24px] md:min-w-[28px] leading-tight`}
+        className={`${bgColor} ${borderColor} ${textColor} border px-0.5 py-0 font-bold text-center text-[6px] sm:text-[8px] md:text-[10px] hover:opacity-80 cursor-pointer transition-opacity min-w-[14px] sm:min-w-[20px] md:min-w-[28px] leading-tight`}
         title={`${getMachineDisplayName(machine)}${isOutOfOrder ? ' - OUT OF ORDER' + (machine.outOfOrderReason ? ': ' + machine.outOfOrderReason : '') : ' - In Service'}`}
       >
         {machine.number || machine.machineNumber || getMachineNumber(machine)}
@@ -5476,7 +5476,7 @@ const MachineStatusGrid = ({ machines }) => {
         style={style}
         className="bg-zinc-900 border border-teal-600 p-0.5 sm:p-1 md:p-2 flex flex-col h-full overflow-hidden"
       >
-        <div className="text-[7px] sm:text-[9px] md:text-xs font-black text-teal-400 mb-0.5 text-center flex-shrink-0 leading-tight">
+        <div className="text-[6px] sm:text-[8px] md:text-xs font-black text-teal-400 mb-0.5 text-center flex-shrink-0 leading-none">
           {bulkhead.name}
         </div>
         
@@ -5547,9 +5547,9 @@ const MachineStatusGrid = ({ machines }) => {
       </div>
       
       {viewMode === 'spatial' ? (
-        /* Spatial Grid Layout - Mobile responsive with portrait detection */
+        /* Spatial Grid Layout - Ultra-compact for portrait */
         <div className="w-full overflow-hidden">
-          {/* Portrait mode warning */}
+          {/* Portrait mode tip */}
           <div className="block sm:hidden mb-2 bg-yellow-900/30 border border-yellow-600 p-2">
             <p className="text-yellow-300 text-[10px] font-bold">
               💡 Tip: Rotate to landscape or use List view for better visibility on phone
@@ -5557,15 +5557,14 @@ const MachineStatusGrid = ({ machines }) => {
           </div>
           
           <div 
-            className="bg-zinc-900 border border-zinc-700 sm:border-2 p-1 sm:p-2 md:p-4"
+            className="bg-zinc-900 border border-zinc-700 sm:border-2 p-0.5 sm:p-2 md:p-4"
             style={{
               display: 'grid',
-              gridTemplateRows: `repeat(${maxRow}, minmax(28px, 1fr))`,
-              gridTemplateColumns: `repeat(${maxCol}, minmax(32px, 1fr))`,
+              gridTemplateRows: `repeat(${maxRow}, minmax(22px, 1fr))`,
+              gridTemplateColumns: `repeat(${maxCol}, minmax(24px, 1fr))`,
               gap: '1px',
-              minHeight: '250px',
-              width: '100%',
-              fontSize: '8px'
+              minHeight: '200px',
+              width: '100%'
             }}
           >
             {bulkheadGroups.map(group => (
